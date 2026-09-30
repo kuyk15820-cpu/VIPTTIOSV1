@@ -1,67 +1,463 @@
-name: Auto Unzip Any Archive
+name: build
 
 on:
   push:
-    paths:
-      - '**.zip'
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      app_name:
+        description: 'App Display Name'
+        required: false
+        default: 'c4'
+      bundle_id:
+        description: 'Bundle Identifier'
+        required: false
+        default: 'com.apple.mobile.MobileHouseArrest'
+      app_version:
+        description: 'App Version (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+      build_number:
+        description: 'Build Number (e.g. 1)'
+        required: false
+        default: '1'
 
 permissions:
   contents: write
 
 jobs:
-  unzip-and-clean:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
+  build:
+    runs-on: macos-15
 
-      - name: Extract all zip files to Root
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: setup xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: show xcode version
+        run: xcodebuild -version
+
+      - name: install ldid & swiftsecretkeys
         run: |
-          for f in *.zip; do
-            [ -e "$f" ] || continue
-            echo "กำลังจัดการแตกไฟล์: $f"
+          brew install ldid
+          git clone https://github.com/MatheusMBispo/SwiftSecretKeys.git /tmp/SwiftSecretKeys
+          cd /tmp/SwiftSecretKeys
+          swift build -c release
+          sudo cp .build/release/sskeys /usr/local/bin/
+
+      - name: generate secret keys
+        run: sskeys generate
+
+      # 🟢 ขั้นตอนอัปเดตชื่อแอป, Bundle ID และ Version
+      - name: update app metadata (name, bundle id, version)
+        env:
+          APP_NAME: ${{ github.event.inputs.app_name || 'c4' }}
+          BUNDLE_ID: ${{ github.event.inputs.bundle_id || 'com.apple.mobile.MobileHouseArrest' }}
+          APP_VERSION: ${{ github.event.inputs.app_version || '1.0.0' }}
+          BUILD_NUMBER: ${{ github.event.inputs.build_number || '1' }}
+        run: |
+          gem install xcodeproj
+          ruby << 'EOF'
+          require 'xcodeproj'
+
+          project_path = Dir.glob('*.xcodeproj').first
+          unless project_path
+            puts 'No .xcodeproj found'
+            exit 1
+          end
+
+          project = Xcodeproj::Project.open(project_path)
+          
+          app_name = ENV['APP_NAME']
+          bundle_id = ENV['BUNDLE_ID']
+          app_version = ENV['APP_VERSION']
+          build_number = ENV['BUILD_NUMBER']
+
+          puts "Updating App Configuration:"
+          puts "  - App Name: #{app_name}"
+          puts "  - Bundle ID: #{bundle_id}"
+          puts "  - Version: #{app_version}"
+          puts "  - Build Number: #{build_number}"
+
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['PRODUCT_NAME'] = app_name
+              config.build_settings['PRODUCT_BUNDLE_IDENTIFIER'] = bundle_id
+              config.build_settings['MARKETING_VERSION'] = app_version
+              config.build_settings['CURRENT_PROJECT_VERSION'] = build_number
+              config.build_settings['INFOPLIST_KEY_CFBundleDisplayName'] = app_name
+            end
+          end
+
+          project.save
+          puts "Successfully updated project build settings!"
+          EOF
+
+      - name: sync swift files to xcodeproj
+        run: |
+          gem install xcodeproj
+          ruby << 'EOF'
+          require 'xcodeproj'
+          
+          project_path = Dir.glob('*.xcodeproj').first
+          unless project_path
+            puts 'No .xcodeproj found'
+            exit 1
+          end
+
+          project = Xcodeproj::Project.open(project_path)
+          target = project.targets.first
+
+          # 🟢 เพิ่ม Header Search Paths ให้ Xcode ค้นหาไฟล์ .h เจอในทุกโฟลเดอร์ย่อย
+          target.build_configurations.each do |config|
+            config.build_settings['HEADER_SEARCH_PATHS'] ||= '$(inherited)'
+            paths = config.build_settings['HEADER_SEARCH_PATHS']
+            paths = [paths] if paths.is_a?(String)
+            unless paths.include?('$(SRCROOT)/**')
+              config.build_settings['HEADER_SEARCH_PATHS'] = paths + ['$(SRCROOT)/**']
+            end
+          end
+
+          # 🟢 1. สั่งเพิ่ม Swift Package (MBProgressHUD)
+          mbph_url = 'https://github.com/jdg/MBProgressHUD.git'
+          mbph_ref = project.root_object.package_references.find { |p| p.repositoryURL == mbph_url }
+          unless mbph_ref
+            mbph_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            mbph_ref.repositoryURL = mbph_url
+            mbph_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '1.2.0' }
+            project.root_object.package_references << mbph_ref
             
-            # เก็บชื่อไฟล์ดั้งเดิมแบบไม่มีนามสกุล .zip (เช่น Troll) ไว้ใช้ตรวจสอบโฟลเดอร์ย่อย
-            FOLDER_NAME="${f%.zip}"
+            mbph_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            mbph_product_dependency.product_name = 'MBProgressHUD'
+            mbph_product_dependency.package = mbph_ref
             
-            # แตกไฟล์ออกมาไว้ที่ root หลักตรงๆ
-            unzip -o "$f" -d ./
-            rm "$f"
+            target.package_product_dependencies << mbph_product_dependency
+            puts 'Added Swift Package: MBProgressHUD'
+          end
+
+          # 🟢 2. สั่งเพิ่ม Swift Package (Drops)
+          drops_url = 'https://github.com/omaralbeik/Drops.git'
+          drops_ref = project.root_object.package_references.find { |p| p.repositoryURL == drops_url }
+          unless drops_ref
+            drops_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            drops_ref.repositoryURL = drops_url
+            drops_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '1.7.0' }
+            project.root_object.package_references << drops_ref
             
-            # ตรวจสอบว่าถ้าหากเกิดโฟลเดอร์ย่อยขึ้นมา (เช่นมีโฟลเดอร์ชื่อ Troll/ โผล่มาหลังแตกไฟล์)
-            if [ -d "$FOLDER_NAME" ]; then
-               echo "พบโฟลเดอร์ซ้อนชื่อ $FOLDER_NAME -> กำลังบังคับดึงไฟล์ภายในทั้งหมดออกมาที่หน้าแรก"
-               
-               # ดึงข้อมูลทุกอย่าง (รวมไฟล์ปกติและไฟล์ซ่อน) ออกมาที่หน้าแรกหลักของ Repo
-               mv "$FOLDER_NAME"/* ./ 2>/dev/null || true
-               mv "$FOLDER_NAME"/.* ./ 2>/dev/null || true
-               
-               # ลบตัวโฟลเดอร์เปล่าที่เหลือทิ้งไป
-               rm -rf "$FOLDER_NAME"
-            fi
+            drops_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            drops_product_dependency.product_name = 'Drops'
+            drops_product_dependency.package = drops_ref
+            
+            target.package_product_dependencies << drops_product_dependency
+            puts 'Added Swift Package: Drops'
+          end
+
+          # 🟢 3. สั่งเพิ่ม Swift Package (SwiftySegmentedPicker -> Product Name: SegmentedPicker)
+          ssp_url = 'https://github.com/KazaiMazai/SwiftySegmentedPicker.git'
+          ssp_ref = project.root_object.package_references.find { |p| p.repositoryURL == ssp_url }
+          unless ssp_ref
+            ssp_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            ssp_ref.repositoryURL = ssp_url
+            ssp_ref.requirement = { 'kind' => 'branch', 'branch' => 'main' }
+            project.root_object.package_references << ssp_ref
+            
+            ssp_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            ssp_product_dependency.product_name = 'SegmentedPicker'
+            ssp_product_dependency.package = ssp_ref
+            
+            target.package_product_dependencies << ssp_product_dependency
+            puts 'Added Swift Package: SegmentedPicker'
+          end
+
+          # 🟢 4. สั่งเพิ่ม Swift Package (swiftui-particles -> Product Name: Particles)
+          particles_url = 'https://github.com/benlmyers/swiftui-particles.git'
+          particles_ref = project.root_object.package_references.find { |p| p.repositoryURL == particles_url }
+          unless particles_ref
+            particles_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            particles_ref.repositoryURL = particles_url
+            particles_ref.requirement = { 'kind' => 'branch', 'branch' => 'main' }
+            project.root_object.package_references << particles_ref
+            
+            particles_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            particles_product_dependency.product_name = 'Particles'
+            particles_product_dependency.package = particles_ref
+            
+            target.package_product_dependencies << particles_product_dependency
+            puts 'Added Swift Package: Particles'
+          end
+
+          # 🟢 5. สั่งเพิ่ม Swift Package (SwiftDate)
+          swiftdate_url = 'https://github.com/malcommac/SwiftDate.git'
+          swiftdate_ref = project.root_object.package_references.find { |p| p.repositoryURL == swiftdate_url }
+          unless swiftdate_ref
+            swiftdate_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            swiftdate_ref.repositoryURL = swiftdate_url
+            swiftdate_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '7.0.0' }
+            project.root_object.package_references << swiftdate_ref
+            
+            swiftdate_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            swiftdate_product_dependency.product_name = 'SwiftDate'
+            swiftdate_product_dependency.package = swiftdate_ref
+            
+            target.package_product_dependencies << swiftdate_product_dependency
+            puts 'Added Swift Package: SwiftDate'
+          end
+
+          # 🟢 6. สั่งเพิ่ม Swift Package (TrustKit)
+          trustkit_url = 'https://github.com/datatheorem/TrustKit.git'
+          trustkit_ref = project.root_object.package_references.find { |p| p.repositoryURL == trustkit_url }
+          unless trustkit_ref
+            trustkit_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            trustkit_ref.repositoryURL = trustkit_url
+            trustkit_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '3.0.7' }
+            project.root_object.package_references << trustkit_ref
+            
+            trustkit_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            trustkit_product_dependency.product_name = 'TrustKit'
+            trustkit_product_dependency.package = trustkit_ref
+            
+            target.package_product_dependencies << trustkit_product_dependency
+            puts 'Added Swift Package: TrustKit'
+          end
+
+          # 🟢 7. สั่งเพิ่ม Swift Package (IOSSecuritySuite)
+          ioss_url = 'https://github.com/securing/IOSSecuritySuite.git'
+          ioss_ref = project.root_object.package_references.find { |p| p.repositoryURL == ioss_url }
+          unless ioss_ref
+            ioss_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            ioss_ref.repositoryURL = ioss_url
+            ioss_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '2.2.0' }
+            project.root_object.package_references << ioss_ref
+            
+            ioss_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            ioss_product_dependency.product_name = 'IOSSecuritySuite'
+            ioss_product_dependency.package = ioss_ref
+            
+            target.package_product_dependencies << ioss_product_dependency
+            puts 'Added Swift Package: IOSSecuritySuite'
+          end
+
+          # 🟢 8. สั่งเพิ่ม Swift Package (SwiftfulLoadingIndicators)
+          sli_url = 'https://github.com/SwiftfulThinking/SwiftfulLoadingIndicators.git'
+          sli_ref = project.root_object.package_references.find { |p| p.repositoryURL == sli_url }
+          unless sli_ref
+            sli_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            sli_ref.repositoryURL = sli_url
+            sli_ref.requirement = { 'kind' => 'branch', 'branch' => 'main' }
+            project.root_object.package_references << sli_ref
+            
+            sli_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            sli_product_dependency.product_name = 'SwiftfulLoadingIndicators'
+            sli_product_dependency.package = sli_ref
+            
+            target.package_product_dependencies << sli_product_dependency
+            puts 'Added Swift Package: SwiftfulLoadingIndicators'
+          end
+
+          # 🟢 10. สั่งเพิ่ม Swift Package (Kingfisher)
+          kf_url = 'https://github.com/onevcat/Kingfisher.git'
+          kf_ref = project.root_object.package_references.find { |p| p.repositoryURL == kf_url }
+          unless kf_ref
+            kf_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            kf_ref.repositoryURL = kf_url
+            kf_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '8.12.0' }
+            project.root_object.package_references << kf_ref
+            
+            kf_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            kf_product_dependency.product_name = 'Kingfisher'
+            kf_product_dependency.package = kf_ref
+            
+            target.package_product_dependencies << kf_product_dependency
+            puts 'Added Swift Package: Kingfisher'
+          end
+
+          # 🟢 11. สั่งเพิ่ม Swift Package (SkeletonView)
+          skv_url = 'https://github.com/Juanpe/SkeletonView.git'
+          skv_ref = project.root_object.package_references.find { |p| p.repositoryURL == skv_url }
+          unless skv_ref
+            skv_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            skv_ref.repositoryURL = skv_url
+            skv_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '1.30.4' }
+            project.root_object.package_references << skv_ref
+            
+            skv_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            skv_product_dependency.product_name = 'SkeletonView'
+            skv_product_dependency.package = skv_ref
+            
+            target.package_product_dependencies << skv_product_dependency
+            puts 'Added Swift Package: SkeletonView'
+          end
+
+          # 🟢 12. สั่งเพิ่ม Swift Package (AnimateText)
+          animatetext_url = 'https://github.com/jasudev/AnimateText.git'
+          animatetext_ref = project.root_object.package_references.find { |p| p.repositoryURL == animatetext_url }
+          unless animatetext_ref
+            animatetext_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            animatetext_ref.repositoryURL = animatetext_url
+            animatetext_ref.requirement = { 'kind' => 'branch', 'branch' => 'main' }
+            project.root_object.package_references << animatetext_ref
+            
+            animatetext_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            animatetext_product_dependency.product_name = 'AnimateText'
+            animatetext_product_dependency.package = animatetext_ref
+            
+            target.package_product_dependencies << animatetext_product_dependency
+            puts 'Added Swift Package: AnimateText'
+          end
+
+          # 🟢 13. สั่งเพิ่ม Swift Package (PusherSwift -> Product Name: PusherSwift)
+          pusher_url = 'https://github.com/pusher/pusher-websocket-swift.git'
+          pusher_ref = project.root_object.package_references.find { |p| p.repositoryURL == pusher_url }
+          unless pusher_ref
+            pusher_ref = project.new(Xcodeproj::Project::Object::XCRemoteSwiftPackageReference)
+            pusher_ref.repositoryURL = pusher_url
+            pusher_ref.requirement = { 'kind' => 'upToNextMajorVersion', 'minimumVersion' => '10.1.0' }
+            project.root_object.package_references << pusher_ref
+            
+            pusher_product_dependency = project.new(Xcodeproj::Project::Object::XCSwiftPackageProductDependency)
+            pusher_product_dependency.product_name = 'PusherSwift'
+            pusher_product_dependency.package = pusher_ref
+            
+            target.package_product_dependencies << pusher_product_dependency
+            puts 'Added Swift Package: PusherSwift'
+          end
+
+          # 🟢 Sync ไฟล์ .swift, .m, .mm, .cpp และ .h เข้า Compile Sources และ Project
+          source_phase = target.source_build_phase
+          existing_files = source_phase.files_references.compact.map(&:real_path).compact.map(&:to_s)
+
+          Dir.glob('**/*.{swift,m,mm,cpp,h}').each do |source_file|
+            next if source_file.start_with?('Pods/', 'Build/', '.build/', 'DerivedData/')
+            
+            file_abs_path = File.expand_path(source_file)
+
+            file_ref = project.files.find { |f| f.real_path.to_s == file_abs_path }
+            unless file_ref
+              file_ref = project.main_group.new_file(source_file)
+            end
+
+            if source_file.end_with?('.swift', '.m', '.mm', '.cpp')
+              unless existing_files.include?(file_abs_path) || source_phase.files_references.include?(file_ref)
+                source_phase.add_file_reference(file_ref)
+                puts "Added to compile sources: #{source_file}"
+              end
+            elsif source_file.end_with?('.h')
+              puts "Added header reference to project: #{source_file}"
+            end
+          end
+
+          project.save
+          EOF
+
+      # 🟢 ตั้งค่า Symbol Stripping และ Compiler Optimization สำหรับป้องกันการ Reverse Engineering
+      - name: setup obfuscation & security flags
+        run: |
+          ruby << 'EOF'
+          require 'xcodeproj'
+          project_path = Dir.glob('*.xcodeproj').first
+          project = Xcodeproj::Project.open(project_path)
+          
+          project.targets.each do |target|
+            target.build_configurations.each do |config|
+              config.build_settings['STRIP_INSTALLED_PRODUCT'] = 'YES'
+              config.build_settings['DEPLOYMENT_POSTPROCESSING'] = 'YES'
+              config.build_settings['STRIP_STYLE'] = 'all'
+              
+              config.build_settings['SWIFT_OPTIMIZATION_LEVEL'] = '-O'
+              config.build_settings['SWIFT_COMPILATION_MODE'] = 'wholemodule'
+              config.build_settings['OTHER_SWIFTC_FLAGS'] ||= '$(inherited)'
+              config.build_settings['OTHER_SWIFTC_FLAGS'] += ' -Xfrontend -empty-abi-descriptor'
+            end
+          end
+          project.save
+          puts "Successfully applied Symbol Stripping & Security Flags"
+          EOF
+
+      - name: build
+        run: |
+          chmod +x scripts/build_ipa.sh
+          ./scripts/build_ipa.sh
+
+      - name: upload artifact (PR only)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-ipa
+          path: |
+            build/*.ipa
+
+      - name: upload release ipa
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-ipa
+          path: build/*.ipa
+
+  release:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: download ipa
+        uses: actions/download-artifact@v4
+        with:
+          name: release-ipa
+          path: build/
+
+      - name: get last 12h commits
+        run: |
+          COMMITS=$(git log --since="12 hours ago" --pretty=format:"- %h %s (%an)")
+          if [ -z "$COMMITS" ]; then
+            COMMITS="no commits in the last 12 hours"
+          fi
+
+          echo "COMMITS<<EOF" >> $GITHUB_ENV
+          echo "$COMMITS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: write release notes
+        run: |
+          cat <<EOF > release_notes.txt
+          Nightly build
+          
+          Last 12 hours commits:
+          
+          ${COMMITS}
+          EOF
+
+      - name: update nightly release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view nightly >/dev/null 2>&1 || \
+          gh release create nightly \
+            --title "Nightly" \
+            --notes "initial nightly" \
+            --prerelease
+      
+          gh release edit nightly \
+            --title "Nightly" \
+            --notes-file release_notes.txt \
+            --prerelease      
+          
+          for asset in $(gh release view nightly --json assets -q '.assets[].name'); do
+            echo "Deleting old asset: $asset"
+            gh release delete-asset nightly "$asset" -y || true
           done
 
-      - name: Fallback Check (For any other single nested folder)
-        run: |
-          # บล็อกสำรอง: หากชื่อโฟลเดอร์ย่อยไม่ตรงกับชื่อ zip แต่แตกมาแล้วดันมีแค่โฟลเดอร์เปล่าๆ ตัวเดียวหุ้มอยู่
-          TARGET_DIR=$(ls -d */ 2>/dev/null | grep -v -E '^(.git|.github)/$' | head -n 1)
-          NON_GIT_ITEMS=$(ls -1d */ * 2>/dev/null | grep -v -E '^(.git|.github)' | wc -l)
-          
-          if [ ! -z "$TARGET_DIR" ] && [ "$NON_GIT_ITEMS" -eq 1 ]; then
-             echo "Fallback: ตรวจพบโฟลเดอร์หุ้มชั้นนอกสุดชื่ออื่น: $TARGET_DIR -> กำลังเคลียร์ไฟล์ย่อยออกมา"
-             mv "$TARGET_DIR"* ./ 2>/dev/null || true
-             mv "$TARGET_DIR".* ./ 2>/dev/null || true
-             rm -rf "$TARGET_DIR"
-          fi
-
-      - name: Commit and Push Changes back to Repo
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .
-          if ! git diff-index --quiet HEAD; then
-            git commit -m "Unpack and force flatten nested zip folder contents to root"
-            git push
-          else
-            echo "ไม่มีการเปลี่ยนแปลงโครงสร้างไฟล์เพิ่มเติม"
-          fi
+          gh release upload nightly build/*.ipa --clobber
