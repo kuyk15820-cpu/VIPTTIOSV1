@@ -1,0 +1,437 @@
+import Foundation
+import UIKit
+import SwiftUI
+import Combine
+
+@MainActor
+class QuickApplyViewModel: ObservableObject {
+    let selectedApp: TargetGameApp
+
+    // 🟢 ผูกข้อมูลกับ Singleton Manager เพื่อให้ข้อมูลคงอยู่ใน Memory ตลอดเวลา
+    @ObservedObject var manager = QuickApplyManager.shared
+
+    @Published var activePatches: [String: Bool] = [:]
+    @Published var selectedItems: Set<String> = []
+    @Published var selectedCategory: String = SecretKeys.categoryAll
+    @Published var isMultiSelectMode = false
+
+    @Published var processingItemID: String?
+    @Published var isProcessingBatch = false
+    @Published var isRestoringAll = false
+
+    private var cancellables = Set<AnyCancellable>()
+
+    // 🟢 ดึงข้อมูล patchItems โดยตรงจาก Manager
+    var patchItems: [QuickPatchItem] {
+        manager.patchItems
+    }
+
+    // 🟢 ดึงสถานะ isLoadingCatalog โดยตรงจาก Manager
+    var isLoadingCatalog: Bool {
+        manager.isLoadingCatalog
+    }
+
+    init(selectedApp: TargetGameApp) {
+        self.selectedApp = selectedApp
+        
+        // 🟢 อัปเดตสถานะ Active ของ Patch ทันทีที่มีการสร้าง ViewModel
+        self.updateActiveStatus(for: manager.patchItems)
+
+        // 🟢 คอยสังเกตการเปลี่ยนแปลง patchItems จาก Manager เพื่ออัปเดต activePatches
+        manager.$patchItems
+            .sink { [weak self] newItems in
+                guard let self = self else { return }
+                self.updateActiveStatus(for: newItems)
+                self.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+    }
+
+    // MARK: - Helper Update Status
+    private func updateActiveStatus(for items: [QuickPatchItem]) {
+        for item in items {
+            if let localURL = self.localPatchURL(for: item.id),
+               FileManager.default.fileExists(atPath: localURL.path),
+               let packageData = try? Data(contentsOf: localURL),
+               let decoded = try? PatchPackageCodec.decode(packageData, password: nil) {
+
+                let hasReceipt = DevicePatchService.latestReceipt(projectID: decoded.project.id) != nil
+                self.activePatches[item.id] = hasReceipt
+            } else {
+                self.activePatches[item.id] = false
+            }
+        }
+    }
+
+    // MARK: - Fetch Catalog Bridge
+    func fetchCatalog(force: Bool = false, showHUD: Bool = true) async {
+        await manager.fetchCatalog(force: force, showHUD: showHUD)
+    }
+
+    // MARK: - Computed Properties
+    var filteredGamePatches: [QuickPatchItem] {
+        patchItems.filter { item in
+            guard let bId = item.bundleID, !bId.isEmpty else { return true }
+            return bId.lowercased() == selectedApp.bundleID.lowercased()
+        }
+    }
+
+    var availableCategories: [String] {
+        var categories = [SecretKeys.categoryAll]
+        let rawCategories = filteredGamePatches.compactMap { $0.category?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        
+        for cat in rawCategories where !cat.isEmpty {
+            if !categories.contains(where: { $0.lowercased() == cat.lowercased() }) {
+                categories.append(cat)
+            }
+        }
+        return categories
+    }
+
+    var displayedPatches: [QuickPatchItem] {
+        if selectedCategory == SecretKeys.categoryAll {
+            return filteredGamePatches
+        }
+        return filteredGamePatches.filter {
+            ($0.category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == selectedCategory.lowercased()
+        }
+    }
+
+    var activeDisplayedPatchesCount: Int {
+        displayedPatches.filter { $0.active ?? true }.count
+    }
+
+    var hasActivePatches: Bool {
+        activePatches.values.contains(true)
+    }
+
+    var availableItems: [QuickPatchItem] {
+        filteredGamePatches.filter { $0.active ?? true }
+    }
+
+    func countForCategory(_ category: String) -> Int? {
+        if category == SecretKeys.categoryAll {
+            return filteredGamePatches.count
+        }
+        return filteredGamePatches.filter {
+            ($0.category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == category.lowercased()
+        }.count
+    }
+
+    // MARK: - User Actions
+    func toggleSelection(for item: QuickPatchItem) {
+        if selectedItems.contains(item.id) {
+            selectedItems.remove(item.id)
+        } else {
+            // 🟢 จำกัดให้เลือกได้เพียง 1 รายการต่อหมวดหมู่ (Dynamic Mutual Exclusion)
+            if let cat = item.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                let sameCategoryIDs = filteredGamePatches.filter {
+                    ($0.category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == cat.lowercased()
+                }.map { $0.id }
+                
+                selectedItems.subtract(sameCategoryIDs)
+            }
+            selectedItems.insert(item.id)
+        }
+    }
+
+    func toggleSelectAll() {
+        isMultiSelectMode.toggle()
+        if !isMultiSelectMode {
+            selectedItems.removeAll()
+        }
+    }    
+
+    func openGame() {
+        let success = AppLauncher.launchApp(bundleID: selectedApp.bundleID)
+        if !success {
+            showErrorNotification(message: "\(SecretKeys.msgLaunchAppFailedPrefix)\(selectedApp.name)\(SecretKeys.msgLaunchAppFailedSuffix)")
+        }
+    }
+
+    // MARK: - Notifications
+    func showSuccessNotification(message: String) {
+        let icon = UIImage(systemName: SecretKeys.iconCheckmarkCircle)?.withTintColor(.white, renderingMode: .alwaysOriginal)
+        FTNotificationIndicator.setNotificationIndicatorStyle(.dark)
+        FTNotificationIndicator.showNotification(
+            with: icon,
+            title: SecretKeys.titleSuccess,
+            message: message
+        )
+    }
+
+    func showErrorNotification(message: String) {
+        let icon = UIImage(systemName: SecretKeys.iconWarningTriangle)?.withTintColor(.white, renderingMode: .alwaysOriginal)
+        FTNotificationIndicator.setNotificationIndicatorStyle(.dark)
+        FTNotificationIndicator.showNotification(
+            with: icon,
+            title: SecretKeys.titleFailed,
+            message: message
+        )
+    }
+
+    // MARK: - Network & Storage Logic
+    private func localPatchURL(for id: String) -> URL? {
+        guard let appSupportURL = try? FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+
+        let targetDirectory = appSupportURL.appendingPathComponent(SecretKeys.c4Directory, isDirectory: true)
+        return targetDirectory.appendingPathComponent("\(id)\(SecretKeys.c4Extension)")
+    }
+
+    private func downloadFile(from urlString: String, to destinationURL: URL) async throws {
+        guard let remoteURL = URL(string: urlString) else {
+            throw PatchPackageError.invalidProject
+        }
+
+        let fileManager = FileManager.default
+        let targetDirectory = destinationURL.deletingLastPathComponent()
+
+        if !fileManager.fileExists(atPath: targetDirectory.path) {
+            try fileManager.createDirectory(at: targetDirectory, withIntermediateDirectories: true)
+        }
+
+        var request = URLRequest(
+            url: remoteURL,
+            cachePolicy: .reloadIgnoringLocalCacheData,
+            timeoutInterval: 30
+        )
+        request.setValue(SecretKeys.userAgentValue, forHTTPHeaderField: SecretKeys.userAgentHeader)
+
+        // 🟢 ใช้ URLSession.pinned ที่ผูก SSL Pinning Delegate ไว้แล้ว
+        let (tempURL, response) = try await URLSession.pinned.download(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) else {
+            throw PatchPackageError.invalidProject
+        }
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+        try fileManager.moveItem(at: tempURL, to: destinationURL)
+    }
+
+    private nonisolated func translatePatchError(_ error: PatchPackageError) -> String {
+        switch error.localizationKey {
+        case SecretKeys.errKeyInvalidProject:
+            return SecretKeys.errMsgInvalidProject
+        case SecretKeys.errKeyAppUnavailable:
+            return "\(SecretKeys.errMsgAppUnavailablePrefix)\(selectedApp.bundleID)\(SecretKeys.errMsgAppUnavailableSuffix)"
+        case SecretKeys.errKeyApply:
+            return SecretKeys.errMsgApply
+        case SecretKeys.errKeyDuplicateTarget:
+            return SecretKeys.errMsgDuplicateTarget
+        case SecretKeys.errKeyInvalidBundle:
+            return SecretKeys.errMsgInvalidBundle
+        case SecretKeys.errKeyPasswordOrCorrupt:
+            return SecretKeys.errMsgPasswordOrCorrupt
+        case SecretKeys.errKeyRestore:
+            return SecretKeys.errMsgRestore
+        case SecretKeys.errKeySizeLimit:
+            return SecretKeys.errMsgSizeLimit
+        default:
+            return error.localizationKey
+        }
+    }
+
+    func handleToggleChange(item: QuickPatchItem, enable: Bool) {
+        processingItemID = item.id
+
+        Task.detached(priority: .userInitiated) {
+            do {
+                guard let applyURL = await self.localPatchURL(for: item.id) else {
+                    throw PatchPackageError.invalidProject
+                }
+
+                if enable {
+                    // 🟢 ถอนการติดตั้ง (Restore) ฟีเจอร์อื่นใน Category เดียวกันทั้งหมด ก่อนใช้งานฟีเจอร์ใหม่
+                    if let cat = item.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                        let activeCategoryItems = await self.filteredGamePatches.filter {
+                            ($0.category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == cat.lowercased() && $0.id != item.id
+                        }
+                        
+                        for otherItem in activeCategoryItems {
+                            await MainActor.run {
+                                self.activePatches[otherItem.id] = false
+                            }
+                            if let otherURL = await self.localPatchURL(for: otherItem.id),
+                               FileManager.default.fileExists(atPath: otherURL.path),
+                               let packageData = try? Data(contentsOf: otherURL),
+                               let decodedPackage = try? PatchPackageCodec.decode(packageData, password: nil) {
+                                
+                                if let receipt = DevicePatchService.latestReceipt(projectID: decodedPackage.project.id) {
+                                    try? DevicePatchService.restore(receipt: receipt)
+                                }
+                                try? FileManager.default.removeItem(at: otherURL)
+                            }
+                        }
+                    }
+
+                    if FileManager.default.fileExists(atPath: applyURL.path),
+                       let existingData = try? Data(contentsOf: applyURL),
+                       let existingDecoded = try? PatchPackageCodec.decode(existingData, password: nil),
+                       let existingReceipt = DevicePatchService.latestReceipt(projectID: existingDecoded.project.id) {
+                        try? DevicePatchService.restore(receipt: existingReceipt)
+                    }
+
+                    try await self.downloadFile(from: item.downloadUrl, to: applyURL)
+
+                    let packageData = try Data(contentsOf: applyURL)
+                    let decodedPackage = try PatchPackageCodec.decode(packageData, password: nil)
+
+                    _ = try DevicePatchService.apply(project: decodedPackage.project)
+
+                    await MainActor.run {
+                        self.activePatches[item.id] = true
+                        self.processingItemID = nil
+                        self.showSuccessNotification(message: SecretKeys.msgPatchAppliedSuccess)
+                    }
+
+                } else {
+                    if FileManager.default.fileExists(atPath: applyURL.path) {
+                        if let packageData = try? Data(contentsOf: applyURL),
+                           let decodedPackage = try? PatchPackageCodec.decode(packageData, password: nil),
+                           let receipt = DevicePatchService.latestReceipt(projectID: decodedPackage.project.id) {
+                            try? DevicePatchService.restore(receipt: receipt)
+                        }
+                        try? FileManager.default.removeItem(at: applyURL)
+                    }
+
+                    await MainActor.run {
+                        self.activePatches[item.id] = false
+                        self.processingItemID = nil
+                        self.showSuccessNotification(message: SecretKeys.msgPatchRestoredSuccess)
+                    }
+                }
+            } catch let error as PatchPackageError {
+                let message = self.translatePatchError(error)
+                await MainActor.run {
+                    self.processingItemID = nil
+                    self.showErrorNotification(message: message)
+                }
+            } catch {
+                await MainActor.run {
+                    self.processingItemID = nil
+                    let message = enable ? SecretKeys.msgPatchApplyFailed : SecretKeys.msgPatchRestoreFailed
+                    self.showErrorNotification(message: message)
+                }
+            }
+        }
+    }
+
+    func applyBatchPatches() {
+        isProcessingBatch = true
+
+        Task.detached(priority: .userInitiated) {
+            let selectedIDs = await self.selectedItems
+            let itemsToApply = await self.filteredGamePatches.filter { selectedIDs.contains($0.id) }
+            var successCount = 0
+
+            for item in itemsToApply {
+                do {
+                    guard let applyURL = await self.localPatchURL(for: item.id) else { continue }
+
+                    // 🟢 ถอนการติดตั้ง (Restore) ฟีเจอร์อื่นใน Category เดียวกันทั้งหมด
+                    if let cat = item.category?.trimmingCharacters(in: .whitespacesAndNewlines), !cat.isEmpty {
+                        let activeCategoryItems = await self.filteredGamePatches.filter {
+                            ($0.category?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? "") == cat.lowercased() && $0.id != item.id
+                        }
+                        
+                        for otherItem in activeCategoryItems {
+                            await MainActor.run {
+                                self.activePatches[otherItem.id] = false
+                            }
+                            if let otherURL = await self.localPatchURL(for: otherItem.id),
+                               FileManager.default.fileExists(atPath: otherURL.path),
+                               let packageData = try? Data(contentsOf: otherURL),
+                               let decodedPackage = try? PatchPackageCodec.decode(packageData, password: nil) {
+                                
+                                if let receipt = DevicePatchService.latestReceipt(projectID: decodedPackage.project.id) {
+                                    try? DevicePatchService.restore(receipt: receipt)
+                                }
+                                try? FileManager.default.removeItem(at: otherURL)
+                            }
+                        }
+                    }
+
+                    if FileManager.default.fileExists(atPath: applyURL.path),
+                       let existingData = try? Data(contentsOf: applyURL),
+                       let existingDecoded = try? PatchPackageCodec.decode(existingData, password: nil),
+                       let existingReceipt = DevicePatchService.latestReceipt(projectID: existingDecoded.project.id) {
+                        try? DevicePatchService.restore(receipt: existingReceipt)
+                    }
+
+                    try await self.downloadFile(from: item.downloadUrl, to: applyURL)
+
+                    let packageData = try Data(contentsOf: applyURL)
+                    let decodedPackage = try PatchPackageCodec.decode(packageData, password: nil)
+
+                    _ = try DevicePatchService.apply(project: decodedPackage.project)
+
+                    successCount += 1
+                    await MainActor.run {
+                        self.activePatches[item.id] = true
+                    }
+                } catch {
+                    print("Failed batch patch item \(item.id): \(error)")
+                }
+            }
+
+            let finalSuccessCount = successCount
+            await MainActor.run {
+                self.isProcessingBatch = false
+                self.selectedItems.removeAll()
+                self.isMultiSelectMode = false
+                if finalSuccessCount > 0 {
+                    self.showSuccessNotification(message: "\(SecretKeys.msgBatchAppliedSuccessPrefix)\(finalSuccessCount)\(SecretKeys.msgBatchAppliedSuccessSuffix)")
+                } else {
+                    self.showErrorNotification(message: SecretKeys.msgBatchAppliedFailed)
+                }
+            }
+        }
+    }
+
+    func restoreAllPatches() {
+        isRestoringAll = true
+
+        Task.detached(priority: .userInitiated) {
+            var count = 0
+            let currentItems = await self.filteredGamePatches
+
+            for item in currentItems {
+                guard let applyURL = await self.localPatchURL(for: item.id) else { continue }
+
+                if FileManager.default.fileExists(atPath: applyURL.path) {
+                    if let packageData = try? Data(contentsOf: applyURL),
+                       let decodedPackage = try? PatchPackageCodec.decode(packageData, password: nil),
+                       let receipt = DevicePatchService.latestReceipt(projectID: decodedPackage.project.id) {
+                        if (try? DevicePatchService.restore(receipt: receipt)) != nil {
+                            count += 1
+                        }
+                    }
+                    try? FileManager.default.removeItem(at: applyURL)
+                }
+
+                await MainActor.run {
+                    self.activePatches[item.id] = false
+                }
+            }
+
+            let finalCount = count
+            await MainActor.run {
+                self.isRestoringAll = false
+                self.selectedItems.removeAll()
+                self.isMultiSelectMode = false
+                if finalCount > 0 {
+                    self.showSuccessNotification(message: SecretKeys.msgPatchRestoredSuccess)
+                } else {
+                    self.showSuccessNotification(message: SecretKeys.msgRestoreAllResetSuccess)
+                }
+            }
+        }
+    }
+}

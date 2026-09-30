@@ -1,0 +1,325 @@
+import SwiftUI
+import UIKit
+import Network
+import PusherSwift
+
+@main
+struct ThreeOneOSFiveApp: App {
+    @StateObject private var appState = AppState()
+    @StateObject private var patchDraftCoordinator = PatchDraftCoordinator()
+    @StateObject private var fileOperationCoordinator = FileOperationCoordinator()
+    
+    // 🟢 ดึง AppUpdateCheckerManager มาคุม State ระดับ Root App
+    @StateObject private var updateManager = AppUpdateCheckerManager.shared
+    
+    @AppStorage(AppLanguage.storageKey) private var languageCode = AppLanguage.english.rawValue
+    
+    @State private var showOnboarding = false 
+    @State private var isCheckingUpdate = true // เริ่มต้นเป็น true เพื่อแสดง Splash Screen
+    @Environment(\.scenePhase) private var scenePhase
+
+    // ตัว Monitor ดักจับสถานะการเชื่อมต่ออินเทอร์เน็ต
+    private let networkMonitor = NWPathMonitor()
+    private let monitorQueue = DispatchQueue(label: "NetworkMonitorQueue")
+
+    // 🟢 Flag ป้องกันการยิงงานเช็คเน็ตซ้อนกันหลายรอบในเวลาอันสั้น
+    @State private var isNetworkCheckingInProgress = false
+
+    // 🟢 ตัวแปรคุม Pusher
+    @State private var pusher: Pusher?
+
+    init() {
+        LayoutMetricsHelper.shared.applyLayoutConstraints()
+        setupLogCapture()
+        log("app: c4 launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
+    }
+
+    private var language: AppLanguage {
+        AppLanguage(rawValue: languageCode) ?? .english
+    }
+
+    var body: some Scene {
+        WindowGroup {
+            ZStack {
+                // 1. หน้าหลักของแอป
+                ContentView()
+                    .environmentObject(appState)
+                    .environmentObject(patchDraftCoordinator)
+                    .environmentObject(fileOperationCoordinator)
+                    .environment(\.appLanguage, language)
+                    .environment(\.locale, language.locale)
+                    .opacity(isCheckingUpdate ? 0 : 1)
+                    .allowsHitTesting(!showOnboarding && !isCheckingUpdate && !updateManager.isUpdateNeeded)
+
+                // 2. 🟢 หน้า Force Update (ถ้าต้องอัปเดต จะเด้งทับทันทีไม่ว่าจะอยู่หน้าไหน/เมนูไหน)
+                if updateManager.isUpdateNeeded && !isCheckingUpdate {
+                    AppUpdateView(
+                        downloadUrl: updateManager.downloadUrl,
+                        releaseNotes: updateManager.releaseNotes,
+                        versionString: updateManager.serverVersion
+                    )
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(998)
+                }
+
+                // 3. หน้า Splash Screen (แสดงผลค้างไว้จนกว่าจะเช็คเวอร์ชันและโหลดข้อมูลล่วงหน้าสำเร็จ)
+                if isCheckingUpdate {
+                    AppSplashScreenView()
+                        .transition(.opacity)
+                        .zIndex(999)
+                }
+
+                // 4. หน้า Onboarding (แสดงผลหลังจากปิด Splash Screen หากยังตั้งค่าไม่เสร็จ)
+                if showOnboarding && !isCheckingUpdate && !updateManager.isUpdateNeeded {
+                    OnboardingView {
+                        OnboardingStore.markCompleted()
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            showOnboarding = false
+                        }
+                    }
+                    .environment(\.appLanguage, language)
+                    .environment(\.locale, language.locale)
+                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(1000)
+                }
+            }
+            .onAppear {
+                isCheckingUpdate = true
+                appState.detectSupport()
+                startNetworkMonitoring()
+                setupPusher() // 🟢 เรียกเริ่มการเชื่อมต่อ Pusher เมื่อแอปเปิด
+            }
+            // 🟢 ดักจับตอนสลับแอปกลับเข้ามา (Background -> Foreground)
+            .onChange(of: scenePhase) { phase in
+                guard phase == .active else { return }
+                
+                // หากปิด Splash Screen แล้ว ให้แอบเช็คเวอร์ชันใหม่เงียบๆ
+                if !isCheckingUpdate {
+                    updateManager.checkVersion()
+                }
+                
+                appState.detectSupport()
+            }
+            .onOpenURL { url in
+                patchDraftCoordinator.presentImport(url)
+            }
+        }
+    }
+
+    // MARK: - Pusher Listener Logic
+    private func setupPusher() {
+        let options = PusherClientOptions(
+            host: .cluster(SecretKeys.pusherCluster)
+        )
+        
+        let pusherClient = Pusher(
+            key: SecretKeys.pusherKey,
+            options: options
+        )
+        
+        // 🟢 Subscribe ไปที่ channel 'patch-channel'
+        let channel = pusherClient.subscribe(SecretKeys.pusherChannel)
+        
+        // 🟢 1. ดัก Event อัปเดตแอปเวอร์ชัน (app_version_updated)
+        channel.bind(eventName: SecretKeys.eventNameAppVersionUpdated) { _ in
+            DispatchQueue.main.async {
+                log("pusher: received app_version_updated event, checking version...")
+                self.updateManager.checkVersion()
+            }
+        }
+        
+        // 🟢 2. ดัก Event อัปเดตเกม -> แจ้งเตือนฝั่ง Target Games
+        channel.bind(eventName: SecretKeys.eventNameGameUpdated) { data in
+            DispatchQueue.main.async {
+                log("pusher: received game_updated event -> \(String(describing: data))")
+                NotificationCenter.default.post(
+                    name: Notification.Name(SecretKeys.notificationRefreshTargetGames),
+                    object: data
+                )
+            }
+        }
+        
+        // 🟢 3. ดัก Event อัปเดตแพตช์ -> แจ้งเตือนฝั่ง Patch Catalog (QuickApply)
+        channel.bind(eventName: SecretKeys.eventNamePatchUpdated) { data in
+            DispatchQueue.main.async {
+                log("pusher: received patch_updated event -> \(String(describing: data))")
+                NotificationCenter.default.post(
+                    name: Notification.Name(SecretKeys.notificationRefreshCatalogPatches),
+                    object: data
+                )
+            }
+        }
+        
+        pusherClient.connect()
+        self.pusher = pusherClient
+    }
+
+    // MARK: - Network Monitoring Logic (ปรับแก้เพื่อความปลอดภัย)
+    private func startNetworkMonitoring() {
+        networkMonitor.pathUpdateHandler = { path in
+            guard path.status == .satisfied else { return }
+            
+            DispatchQueue.main.async {
+                // 🟢 ป้องกันการทำงานซ้อนถ้ากำลังเช็คเน็ตอยู่
+                guard !self.isNetworkCheckingInProgress else { return }
+                self.isNetworkCheckingInProgress = true
+                
+                if self.isCheckingUpdate {
+                    self.performUpdateCheck()
+                } else {
+                    // 🟢 ถ้าเน็ตเชื่อมต่อตอนกำลังใช้งาน ให้แอบเช็คเวอร์ชัน
+                    self.updateManager.checkVersion()
+                    self.isNetworkCheckingInProgress = false
+                }
+            }
+        }
+        networkMonitor.start(queue: monitorQueue)
+    }
+
+    // MARK: - Helper Function เช็คเวอร์ชันพร้อมโหลดข้อมูล Target Games & Patches ล่วงหน้าก่อนปิด Splash Screen
+    private func performUpdateCheck() {
+        let startTime = Date()
+        
+        // 🟢 1. Pre-fetch โหลดรายการเกม และรายการ Patch Catalog ล่วงหน้าเบื้องหลังผ่าน Singleton โดยตรง (ไม่แสดง HUD)
+        Task {
+            await TargetGameManager.shared.fetchTargetGames(showHUD: false)
+            await QuickApplyManager.shared.fetchCatalog(force: true, showHUD: false)
+        }
+        
+        // 🟢 2. เช็คเวอร์ชันแอปควบคู่กันไป
+        AppUpdateCheckerManager.shared.checkVersion { needsUpdate, downloadUrl, releaseNotes, serverVersion in
+            Task { @MainActor in
+                defer {
+                    // ปลดล็อกให้สั่งเช็คเน็ตใหม่ได้ในครั้งต่อไป
+                    self.isNetworkCheckingInProgress = false
+                }
+
+                if serverVersion.isEmpty && !needsUpdate && downloadUrl == nil {
+                    return 
+                }
+
+                let elapsedTime = Date().timeIntervalSince(startTime)
+                let minDuration: TimeInterval = minDurationTimeInterval
+                
+                if elapsedTime < minDuration {
+                    let remainingTime = UInt64((minDuration - elapsedTime) * 1_000_000_000)
+                    try? await Task.sleep(nanoseconds: remainingTime)
+                }
+                
+                // 🟢 ไม่ใส่ networkMonitor.cancel() เพื่อให้ Monitor ยังทำงานต่อเวลามีการปิด/เปิดเน็ตในอนาคต
+                
+                // ปิด Splash Screen เพื่อเปิดเข้าหน้าแอปเมื่อข้อมูลพร้อมใช้งาน
+                withAnimation(.easeOut(duration: 0.3)) {
+                    self.isCheckingUpdate = false
+                }
+            }
+        }
+    }
+    
+    private var minDurationTimeInterval: TimeInterval { 1.0 }
+}
+
+// MARK: - AppState
+class AppState: ObservableObject {
+    @Published var exploitStatus: ExploitStatus = .notStarted
+    @Published var unsupportedMessage: String?
+    @Published var kernelExploitRunning = false
+
+    private var autoRunAttempted = false
+
+    var kernelExploitApplicable: Bool {
+        KernelExploit.isApplicable(
+            major: AppInfo.versionTuple.major,
+            minor: AppInfo.versionTuple.minor,
+            patch: AppInfo.versionTuple.patch,
+            build: AppInfo.osBuild
+        )
+    }
+
+    var isSupported: Bool { unsupportedMessage == nil }
+
+    func detectSupport() {
+        let v = AppInfo.versionTuple
+        let supported = ExploitSupportPolicy.isSupported(
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            build: AppInfo.osBuild
+        )
+#if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--simulate-access") {
+            exploitStatus = .success(method: "Simulator preview")
+        }
+#endif
+
+        unsupportedMessage = supported ? nil : "iOS \(AppInfo.osVersion) (\(AppInfo.osBuild))"
+        if let unsupportedMessage {
+            exploitStatus = .unsupported(unsupportedMessage)
+            return
+        }
+
+        let applicable = KernelExploit.isApplicable(
+            major: v.major,
+            minor: v.minor,
+            patch: v.patch,
+            build: AppInfo.osBuild
+        )
+        guard applicable else { return }
+
+        refreshKernelExploitStatus()
+        maybeAutoRunKernelExploit()
+    }
+
+    private func maybeAutoRunKernelExploit() {
+        guard !kernelExploitRunning,
+              !exploitStatus.isSuccess,
+              !exploitStatus.isFailed,
+              !autoRunAttempted else { return }
+        autoRunAttempted = true
+        log("app: starting kernel exploit automatically")
+        runKernelExploitIfNeeded()
+    }
+
+    private func refreshKernelExploitStatus() {
+        guard !kernelExploitRunning else { return }
+
+        if KernelExploit.requiresSandboxEscape {
+            if KernelExploit.hasSandboxAccess() {
+                if !exploitStatus.isSuccess {
+                    exploitStatus = .success(method: "kexploit")
+                    log("app: existing sandbox access is still active; skipping kernel exploit")
+                }
+            } else if exploitStatus.isSuccess {
+                exploitStatus = .notStarted
+                log("app: sandbox access is no longer active")
+            }
+        }
+    }
+
+    func runKernelExploitIfNeeded() {
+        refreshKernelExploitStatus()
+        guard !kernelExploitRunning,
+              !exploitStatus.isSuccess,
+              !exploitStatus.isFailed else { return }
+        kernelExploitRunning = true
+        exploitStatus = .notStarted
+        log("app: running kernel exploit on background...")
+        DispatchQueue.global(qos: .userInitiated).async {
+            let ok = KernelExploit.run()
+            DispatchQueue.main.async {
+                self.kernelExploitRunning = false
+                if ok {
+                    self.exploitStatus = .success(method: "kexploit")
+                    if KernelExploit.requiresSandboxEscape {
+                        log("app: kernel exploit success — sandbox access verified")
+                    } else {
+                        log("app: kernel exploit success — kernel access active")
+                    }
+                } else {
+                    self.exploitStatus = .failed(method: "kexploit", code: -1)
+                    log("app: kernel exploit failed — relaunch the app before retrying")
+                }
+            }
+        }
+    }
+}
