@@ -321,10 +321,10 @@
 			};
 			buildConfigurationList = 3105AA00;
 			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
+			developmentRegion = th;
 			hasScannedForEncodings = 0;
 			knownRegions = (
-				en,
+				th,
 				Base,
 			);
 			mainGroup = 3105A400;
