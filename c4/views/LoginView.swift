@@ -7,7 +7,7 @@ struct LoginView: View {
     @State private var userPassword: String = ""
     @State private var isPasswordVisible: Bool = false
     
-    // โทนสีตาม UI Design ในรูป
+    // โทนสีตาม UI Design
     private let backgroundColor = Color(red: 0.05, green: 0.04, blue: 0.08)
     private let inputBackgroundColor = Color(red: 0.12, green: 0.11, blue: 0.16)
     private let purpleAccent = Color(red: 0.62, green: 0.38, blue: 1.0)
@@ -21,7 +21,7 @@ struct LoginView: View {
             VStack(alignment: .leading, spacing: 24) {
                 // ปุ่ม Back Top-Left
                 Button(action: {
-                    // Action สำหรับย้อนกลับ (ถ้ามี)
+                    // Action สำหรับย้อนกลับ
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 20, weight: .semibold))
@@ -94,7 +94,8 @@ struct LoginView: View {
                     
                     HStack(spacing: 4) {
                         Link("Terms of Use", destination: URL(string: "https://your-domain.com/terms")!)
-                            .font(.system(size: 12, weight: .underline))
+                            .font(.system(size: 12))
+                            .underline()
                             .foregroundColor(.gray)
                         
                         Text("&")
@@ -102,7 +103,8 @@ struct LoginView: View {
                             .foregroundColor(.gray)
                         
                         Link("Privacy Policy", destination: URL(string: "https://your-domain.com/privacy")!)
-                            .font(.system(size: 12, weight: .underline))
+                            .font(.system(size: 12))
+                            .underline()
                             .foregroundColor(.gray)
                     }
                 }
@@ -149,7 +151,7 @@ struct LoginView: View {
     }
 }
 
-// MARK: - Preview
+// MARK: - Preview (รองรับทั้ง iOS 17+ และเวอร์ชันก่อนหน้า)
 #Preview {
     LoginView()
         .environmentObject(AuthManager())
