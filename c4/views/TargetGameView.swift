@@ -10,17 +10,20 @@ struct TargetGameView: View {
 
     // 🟢 ตัว Monitor สำหรับตรวจจับการเชื่อมต่ออินเทอร์เน็ต
     @State private var networkMonitor: NWPathMonitor?
+    
+    // 🟢 Flag เช็คว่าเคยโหลดครั้งแรกสุดไปแล้วหรือยัง (ป้องกันหน้ากระพริบเมื่อสั่ง Fetch เบื้องหลัง)
+    @State private var hasInitialLoaded = false
 
     var body: some View {
         NavigationStack {
             Group {
                 if gameManager.targetApps.isEmpty {
-                    if gameManager.isLoading {
-                        // 🟢 กำลังโหลดครั้งแรกและยังไม่มีข้อมูล -> แสดงพื้นที่ว่างเปล่า (กันหน้า Empty State กระพริบ)
+                    if gameManager.isLoading && !hasInitialLoaded {
+                        // 🟢 โหลดครั้งแรกสุดเท่านั้นที่ใช้ Color.clear
                         Color.clear
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        // 🟢 โหลดเสร็จแล้วแต่ไม่มีรายการเกมจริงๆ -> แสดง Empty State
+                        // 🟢 ถ้าเคยโหลดไปแล้ว หรือโหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState สถิตไว้ ไม่กระพริบ
                         EmptyStateView(type: .noGames)
                     }
                 } else {
@@ -61,8 +64,10 @@ struct TargetGameView: View {
             }
         }
         .onAppear {
-            // 🟢 โหลดข้อมูลเบื้องหลังโดยไม่ขึ้น HUD (เนื่องจาก Pre-fetch มาแล้วจาก Splash Screen)
-            gameManager.fetchTargetGames(showHUD: false)
+            // 🟢 โหลดข้อมูลเบื้องหลังโดยไม่ขึ้น HUD
+            gameManager.fetchTargetGames(showHUD: false) { _ in
+                self.hasInitialLoaded = true
+            }
             startNetworkMonitoring()
         }
         .onDisappear {
@@ -71,7 +76,9 @@ struct TargetGameView: View {
         // 🟢 ตรวจจับเมื่อสลับแอปกลับเข้ามา (.active) แล้วดึงข้อมูลใหม่แบบเงียบๆ
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
-                gameManager.fetchTargetGames(showHUD: false)
+                gameManager.fetchTargetGames(showHUD: false) { _ in
+                    self.hasInitialLoaded = true
+                }
             }
         }
     }
@@ -86,7 +93,9 @@ struct TargetGameView: View {
             if path.status == .satisfied {
                 Task { @MainActor in
                     if self.gameManager.targetApps.isEmpty && !self.gameManager.isLoading {
-                        self.gameManager.fetchTargetGames(showHUD: false)
+                        self.gameManager.fetchTargetGames(showHUD: false) { _ in
+                            self.hasInitialLoaded = true
+                        }
                     }
                 }
             }
