@@ -18,14 +18,14 @@ SCHEME_NAME="$TARGET_NAME"
 echo "Auto-generating scheme for Target: $SCHEME_NAME..."
 xcodebuild -project "$PROJECT_FILE" -scheme "$SCHEME_NAME" -manageAutomaticSchemes >/dev/null 2>&1 || true
 
-# 1. สั่ง Archive (กำหนด IPHONEOS_DEPLOYMENT_TARGET=15.0 เพื่อรองรับ SPM Dependencies)
+# 1. สั่ง Archive (กำหนด IPHONEOS_DEPLOYMENT_TARGET=16.0 เพื่อรองรับ SPM Dependencies)
 xcodebuild \
   -project "$PROJECT_FILE" \
   -scheme "$SCHEME_NAME" \
   -configuration Release \
   -destination 'generic/platform=iOS' \
   -archivePath "$PWD/build/$PROJECT_NAME.xcarchive" \
-  IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+  IPHONEOS_DEPLOYMENT_TARGET=16.0 \
   archive \
   CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO \
