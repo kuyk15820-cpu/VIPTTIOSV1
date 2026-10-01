@@ -11,7 +11,7 @@ class AuthManager: ObservableObject {
     @Published var isBanned: Bool = false
     @Published var banInfo: BanInfo? = nil
 
-    private let baseURL = "https://your-domain.com/api" // ⚠️ เปลี่ยนเป็น URL Server ของคุณ
+    private let baseURL = "https://f1x3r.org/f1x3r_auth" // ⚠️ เปลี่ยนเป็น URL Server ของคุณ
     private let tokenKey = "user_session_token"
 
     init() {
