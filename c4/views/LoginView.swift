@@ -150,9 +150,7 @@ struct LoginView: View {
 }
 
 // MARK: - Preview
-struct LoginView_Previews: PreviewProvider {
-    static var previews: View {
-        LoginView()
-            .environmentObject(AuthManager())
-    }
+#Preview {
+    LoginView()
+        .environmentObject(AuthManager())
 }
