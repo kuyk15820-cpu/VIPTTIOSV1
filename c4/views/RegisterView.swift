@@ -155,7 +155,8 @@ struct RegisterView: View {
                         
                         HStack(spacing: 4) {
                             Link("Terms of Use", destination: URL(string: "https://your-domain.com/terms")!)
-                                .font(.system(size: 12, weight: .underline))
+                                .font(.system(size: 12))
+                                .underline()
                                 .foregroundColor(.gray)
                             
                             Text("&")
@@ -163,7 +164,8 @@ struct RegisterView: View {
                                 .foregroundColor(.gray)
                             
                             Link("Privacy Policy", destination: URL(string: "https://your-domain.com/privacy")!)
-                                .font(.system(size: 12, weight: .underline))
+                                .font(.system(size: 12))
+                                .underline()
                                 .foregroundColor(.gray)
                         }
                     }
@@ -258,7 +260,7 @@ struct RegisterView: View {
 
 // MARK: - Preview
 struct RegisterView_Previews: PreviewProvider {
-    static var previews: View {
+    static var previews: some View {
         RegisterView()
             .environmentObject(AuthManager())
     }
