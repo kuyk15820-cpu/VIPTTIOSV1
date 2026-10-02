@@ -14,7 +14,6 @@ struct RegisterView: View {
     @State private var isConfirmPasswordVisible: Bool = false
     
     @State private var isOTPSent: Bool = false
-    @State private var localErrorMessage: String? = nil
     
     @FocusState private var focusedField: Field?
     
@@ -30,7 +29,6 @@ struct RegisterView: View {
             backgroundColor.ignoresSafeArea()
             
             if isOTPSent {
-                // เรียกใช้ VerifyOTPView ไฟล์ใหม่
                 VerifyOTPView(
                     email: email,
                     onBack: {
@@ -89,13 +87,6 @@ struct RegisterView: View {
                         customInputField(title: "Username", text: $username, field: .username)
                         customPasswordField
                         customConfirmPasswordField
-                    }
-                    
-                    if let errorMessage = localErrorMessage ?? authManager.errorMessage {
-                        Text(errorMessage)
-                            .font(.system(size: 13))
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.center)
                     }
                     
                     Button(action: validateAndRegister) {
@@ -273,23 +264,23 @@ struct RegisterView: View {
     }
     
     private func validateAndRegister() {
-        localErrorMessage = nil
-        
+        // เช็กฝั่ง Client ก่อน ถ้าไม่ผ่านให้เรียก showErrorNotification ของ AuthManager
         guard isValidEmail(email) else {
-            localErrorMessage = "Please enter a valid email address."
+            authManager.showErrorNotification(message: AuthMessages.Warning.invalidEmailFormat)
             return
         }
         
         guard password.count >= 8 else {
-            localErrorMessage = "Password must be at least 8 characters long."
+            authManager.showErrorNotification(message: AuthMessages.Warning.passwordTooShort)
             return
         }
         
         guard password == confirmPassword else {
-            localErrorMessage = "Passwords do not match."
+            authManager.showErrorNotification(message: "รหัสผ่านทั้งสองช่องไม่ตรงกัน")
             return
         }
         
+        // ยิง API สั่งขอ OTP
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
                 withAnimation { isOTPSent = true }
