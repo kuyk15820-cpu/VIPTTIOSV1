@@ -7,13 +7,14 @@ struct LoginView: View {
     @State private var userPassword: String = ""
     @State private var isPasswordVisible: Bool = false
     
-    // สถานะสำหรับเปิด/ปิด หน้า RegisterView (สมัครสมาชิก)
+    // สถานะสำหรับเปิด/ปิด หน้าต่างต่างๆ
     @State private var showRegisterView: Bool = false
+    @State private var showForgotPasswordView: Bool = false
     
     // ตรวจจับสถานะการเปิด/ปิด แป้นพิมพ์
     @FocusState private var isInputFocused: Bool
     
-    // URL ไอคอนชั่วคราวสำหรับทดสอบ (เป็นไฟล์ PNG สีขาวโปร่งใส)
+    // URL ไอคอนชั่วคราวสำหรับทดสอบ
     private let emailIconURL = URL(string: "https://f1x3r.org/f1x3r_auth/email.png")
     private let passwordIconURL = URL(string: "https://f1x3r.org/f1x3r_auth/password.png")
     
@@ -45,7 +46,7 @@ struct LoginView: View {
                 .padding(.top, 16)
                 .padding(.bottom, isInputFocused ? 12 : 28)
                 
-                // MARK: - Title Text (สลับแนวนอนเมื่อกำลังพิมพ์)
+                // MARK: - Title Text
                 Text(isInputFocused ? "Hey, Welcome Back" : "Hey,\nWelcome\nBack")
                     .font(.system(size: isInputFocused ? 24 : 34, weight: .bold))
                     .foregroundColor(.white)
@@ -56,7 +57,7 @@ struct LoginView: View {
                 // MARK: - Input Fields
                 VStack(spacing: 12) {
                     
-                    // ช่องกรอก Email / Username (ใช้ AsyncImage ดึงไอคอนจาก URL ชั่วคราว)
+                    // ช่องกรอก Email / Username
                     HStack(spacing: 10) {
                         AsyncImage(url: emailIconURL) { phase in
                             switch phase {
@@ -66,7 +67,7 @@ struct LoginView: View {
                                     .scaledToFit()
                                     .opacity(0.6)
                             default:
-                                Image(systemName: "envelope.fill") // SF Symbol สำรองกรณีโหลดรูปไม่ได้
+                                Image(systemName: "envelope.fill")
                                     .resizable()
                                     .scaledToFit()
                                     .foregroundColor(.gray)
@@ -74,7 +75,7 @@ struct LoginView: View {
                         }
                         .frame(width: 18, height: 18)
                         
-                        TextField("", text: $userLogin, prompt: Text("Email id").foregroundColor(.gray))
+                        TextField("", text: $userLogin, prompt: Text("Email or Username").foregroundColor(.gray))
                             .foregroundColor(.white)
                             .autocapitalization(.none)
                             .disableAutocorrection(true)
@@ -89,7 +90,7 @@ struct LoginView: View {
                             .stroke(inputBorderColor, lineWidth: 1)
                     )
                     
-                    // ช่องกรอก Password (ใช้ AsyncImage ดึงไอคอนจาก URL ชั่วคราว)
+                    // ช่องกรอก Password
                     HStack(spacing: 10) {
                         AsyncImage(url: passwordIconURL) { phase in
                             switch phase {
@@ -99,7 +100,7 @@ struct LoginView: View {
                                     .scaledToFit()
                                     .opacity(0.6)
                             default:
-                                Image(systemName: "lock.fill") // SF Symbol สำรองกรณีโหลดรูปไม่ได้
+                                Image(systemName: "lock.fill")
                                     .resizable()
                                     .scaledToFit()
                                     .foregroundColor(.gray)
@@ -135,11 +136,11 @@ struct LoginView: View {
                     )
                 }
                 
-                // MARK: - Forgot Password Button
+                // MARK: - Forgot Password Button (ต่อเข้ากับ Sheet ลืมรหัสผ่าน)
                 HStack {
                     Spacer()
                     Button(action: {
-                        // Action ไปหน้า Forget Password
+                        showForgotPasswordView = true
                     }) {
                         Text("Forgot password?")
                             .font(.system(size: 13, weight: .regular))
@@ -188,7 +189,6 @@ struct LoginView: View {
                         .font(.system(size: 14))
                         .foregroundColor(.gray)
                     
-                    // กดปุ่ม Sign up เพื่อเปิดหน้าสร้างบัญชี
                     Button(action: {
                         showRegisterView = true
                     }) {
@@ -202,10 +202,168 @@ struct LoginView: View {
             }
             .padding(.horizontal, 24)
         }
-        // เปิดหน้า RegisterView แบบ Modal FullScreen
+        // เปิดหน้า RegisterView
         .fullScreenCover(isPresented: $showRegisterView) {
             RegisterView()
                 .environmentObject(authManager)
+        }
+        // เปิดหน้า ForgotPasswordView
+        .sheet(isPresented: $showForgotPasswordView) {
+            ForgotPasswordView()
+                .environmentObject(authManager)
+        }
+    }
+}
+
+// MARK: - Subview: Forgot Password View (ขอ OTP 4 หลัก + ตั้งรหัสใหม่)
+struct ForgotPasswordView: View {
+    @EnvironmentObject var authManager: AuthManager
+    @Environment(\.presentationMode) var presentationMode
+    
+    @State private var email: String = ""
+    @State private var otpCode: String = ""
+    @State private var newPassword: String = ""
+    @State private var isPasswordVisible: Bool = false
+    
+    @State private var isOTPSent: Bool = false
+    @State private var localErrorMessage: String? = nil
+    
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            
+            VStack(spacing: 20) {
+                // Top Bar
+                HStack {
+                    Spacer()
+                    Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray)
+                    }
+                }
+                .padding(.top, 16)
+                
+                Spacer()
+                
+                if !isOTPSent {
+                    // Step 1: ขอ OTP
+                    VStack(spacing: 16) {
+                        Image(systemName: "lock.rotation")
+                            .font(.system(size: 48))
+                            .foregroundColor(.white)
+                        
+                        Text("Reset Password")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+                        
+                        Text("Enter your email address to receive a 4-digit OTP code.")
+                            .font(.system(size: 14))
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        
+                        TextField("Email Address", text: $email)
+                            .padding(.horizontal, 14)
+                            .frame(height: 46)
+                            .foregroundColor(.white)
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                            .autocapitalization(.none)
+                        
+                        if let error = localErrorMessage ?? authManager.errorMessage {
+                            Text(error).font(.system(size: 13)).foregroundColor(.red)
+                        }
+                        
+                        Button(action: requestOTP) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12).fill(Color.white).frame(height: 48)
+                                if authManager.isLoading {
+                                    ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                } else {
+                                    Text("Send OTP").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
+                                }
+                            }
+                        }
+                        .disabled(authManager.isLoading || email.isEmpty)
+                        .opacity(email.isEmpty ? 0.5 : 1.0)
+                    }
+                } else {
+                    // Step 2: กรอก OTP + ตั้งรหัสผ่านใหม่
+                    VStack(spacing: 16) {
+                        Image(systemName: "key.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(.white)
+                        
+                        Text("Enter New Password")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+                        
+                        TextField("4-Digit OTP Code", text: Binding(
+                            get: { otpCode },
+                            set: { if $0.count <= 4 { otpCode = $0 } }
+                        ))
+                        .keyboardType(.numberPad)
+                        .padding(.horizontal, 14)
+                        .frame(height: 46)
+                        .foregroundColor(.white)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                        
+                        HStack {
+                            if isPasswordVisible {
+                                TextField("New Password (min 8 chars)", text: $newPassword)
+                                    .foregroundColor(.white)
+                            } else {
+                                SecureField("New Password (min 8 chars)", text: $newPassword)
+                                    .foregroundColor(.white)
+                            }
+                            Button(action: { isPasswordVisible.toggle() }) {
+                                Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
+                                    .foregroundColor(.gray)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .frame(height: 46)
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.white.opacity(0.3), lineWidth: 1))
+                        
+                        if let error = localErrorMessage ?? authManager.errorMessage {
+                            Text(error).font(.system(size: 13)).foregroundColor(.red)
+                        }
+                        
+                        Button(action: resetPassword) {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12).fill(Color.white).frame(height: 48)
+                                if authManager.isLoading {
+                                    ProgressView().progressViewStyle(CircularProgressViewStyle(tint: .black))
+                                } else {
+                                    Text("Reset Password").font(.system(size: 16, weight: .semibold)).foregroundColor(.black)
+                                }
+                            }
+                        }
+                        .disabled(authManager.isLoading || otpCode.count != 4 || newPassword.count < 8)
+                        .opacity((otpCode.count != 4 || newPassword.count < 8) ? 0.5 : 1.0)
+                    }
+                }
+                
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+        }
+    }
+    
+    private func requestOTP() {
+        localErrorMessage = nil
+        authManager.requestPasswordReset(email: email) { success in
+            if success {
+                withAnimation { isOTPSent = true }
+            }
+        }
+    }
+    
+    private func resetPassword() {
+        localErrorMessage = nil
+        authManager.resetPassword(email: email, otp: otpCode, newPassword: newPassword) { success in
+            if success {
+                presentationMode.wrappedValue.dismiss()
+            }
         }
     }
 }
