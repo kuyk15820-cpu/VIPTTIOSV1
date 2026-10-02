@@ -2,71 +2,7 @@ import Foundation
 import UIKit
 import Combine
 
-// MARK: - Data Models
-struct User: Codable, Identifiable {
-    let id: Int
-    let fullName: String
-    let username: String
-    let email: String
-    let role: String
-    let createdAt: String?
-    let firstLoginAt: String?
-    let lastLoginAt: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id
-        case fullName = "full_name"
-        case username
-        case email
-        case role
-        case createdAt = "created_at"
-        case firstLoginAt = "first_login_at"
-        case lastLoginAt = "last_login_at"
-    }
-}
-
-struct BanInfo: Codable {
-    let type: String
-    let reason: String?
-    let banUntil: String?
-
-    enum CodingKeys: String, CodingKey {
-        case type
-        case reason
-        case banUntil = "ban_until"
-    }
-}
-
-struct BaseAPIResponse: Codable {
-    let status: Bool
-    let errorCode: String?
-    let message: String?
-    let banInfo: BanInfo?
-
-    enum CodingKeys: String, CodingKey {
-        case status
-        case errorCode = "error_code"
-        case message
-        case banInfo = "ban_info"
-    }
-}
-
-struct APIResponse<T: Codable>: Codable {
-    let status: Bool
-    let errorCode: String?
-    let message: String?
-    let banInfo: BanInfo?
-    let data: T?
-
-    enum CodingKeys: String, CodingKey {
-        case status
-        case errorCode = "error_code"
-        case message
-        case banInfo = "ban_info"
-        case data
-    }
-}
-
+// MARK: - AuthManager Helper Models (ใช้เฉพาะในกระบวนการ Auth)
 struct UserDataResponse: Codable {
     let id: Int
     let fullName: String
@@ -329,7 +265,7 @@ class AuthManager: ObservableObject {
                 }
 
                 do {
-                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
                     if decoded.status {
                         let msg = AuthMessages.Success.otpSent
                         self?.successMessage = msg
@@ -463,7 +399,7 @@ class AuthManager: ObservableObject {
                 }
 
                 do {
-                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
                     if decoded.status {
                         let msg = AuthMessages.Success.resetRequestSent
                         self?.successMessage = msg
@@ -543,7 +479,7 @@ class AuthManager: ObservableObject {
                 }
 
                 do {
-                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
                     if decoded.status {
                         let msg = AuthMessages.Success.passwordUpdated
                         self?.successMessage = msg
