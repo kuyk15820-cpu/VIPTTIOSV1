@@ -7,10 +7,11 @@ struct VerifyOTPView: View {
     var onBack: () -> Void
     var onResend: () -> Void
     
-    @State private var otpDigits: [String] = Array(repeating: "", count: 4)
-    @FocusState private var focusedIndex: Int?
+    @State private var otpText: String = ""
+    @FocusState private var isFocused: Bool
     @State private var localErrorMessage: String? = nil
     
+    private let otpLength = 4
     private let inputBorderColor = Color.white.opacity(0.3)
     
     var body: some View {
@@ -50,28 +51,43 @@ struct VerifyOTPView: View {
                 }
                 .padding(.bottom, 8)
                 
-                // 🟢 ช่องกรอก OTP แบบ 4 ช่องแยก
-                HStack(spacing: 12) {
-                    ForEach(0..<4, id: \.self) { index in
-                        TextField("", text: Binding(
-                            get: { otpDigits[index] },
-                            set: { newValue in
-                                handleOTPInput(at: index, value: newValue)
-                            }
-                        ))
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
+                // 🟢 OTP Display Cards + Hidden Input Field
+                ZStack {
+                    // 1. Hidden TextField สำหรับรับ Input จริง
+                    TextField("", text: $otpText)
                         .keyboardType(.numberPad)
-                        .focused($focusedIndex, equals: index)
-                        .frame(width: 56, height: 56)
-                        .background(Color.clear)
-                        .cornerRadius(12)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(focusedIndex == index ? Color.white : inputBorderColor, lineWidth: 1.5)
-                        )
+                        .textContentType(.oneTimeCode)
+                        .focused($isFocused)
+                        .accentColor(.clear)
+                        .foregroundColor(.clear)
+                        .opacity(0.01)
+                        .onChange(of: otpText) { newValue in
+                            handleOTPChange(newValue)
+                        }
+                    
+                    // 2. Visual Card Display (ดีไซน์คงเดิม 100%)
+                    HStack(spacing: 12) {
+                        ForEach(0..<otpLength, id: \.self) { index in
+                            let digit = getDigit(at: index)
+                            let isCurrentFocus = isFocused && (index == otpText.count || (index == otpLength - 1 && otpText.count == otpLength))
+                            
+                            Text(digit)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Color.clear)
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(isCurrentFocus ? Color.white : inputBorderColor, lineWidth: 1.5)
+                                )
+                        }
                     }
+                    .allowsHitTesting(false)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isFocused = true
                 }
                 .padding(.horizontal, 24)
                 
@@ -91,9 +107,9 @@ struct VerifyOTPView: View {
                 
                 // ปุ่ม Resend Code
                 Button(action: {
-                    otpDigits = Array(repeating: "", count: 4)
+                    otpText = ""
                     localErrorMessage = nil
-                    setFocus(to: 0)
+                    isFocused = true
                     onResend()
                 }) {
                     Text("Resend OTP Code")
@@ -108,63 +124,45 @@ struct VerifyOTPView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .onAppear {
-            setFocus(to: 0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isFocused = true
+            }
         }
     }
     
     // MARK: - Helper Functions
     
-    private func handleOTPInput(at index: Int, value: String) {
-        let filtered = value.filter { $0.isNumber }
-        
-        if filtered.count > 1 {
-            // รองรับกรณี Paste หรือพิมพ์ไว
-            let chars = Array(filtered)
-            for i in 0..<min(chars.count, 4) {
-                otpDigits[i] = String(chars[i])
-            }
-            if chars.count >= 4 {
-                setFocus(to: nil)
-                verifyOTP()
-            } else {
-                setFocus(to: chars.count)
-            }
-            return
+    private func getDigit(at index: Int) -> String {
+        if index < otpText.count {
+            let start = otpText.index(otpText.startIndex, offsetBy: index)
+            return String(otpText[start])
         }
-        
-        if filtered.isEmpty {
-            otpDigits[index] = ""
-            if index > 0 {
-                setFocus(to: index - 1)
-            }
-        } else {
-            otpDigits[index] = String(filtered.last!)
-            if index < 3 {
-                setFocus(to: index + 1)
-            } else {
-                setFocus(to: nil)
-                verifyOTP()
-            }
-        }
+        return ""
     }
     
-    // 🟢 สลับ Focus อย่างปลอดภัยใน RunLoop ถัดไป
-    private func setFocus(to targetIndex: Int?) {
-        DispatchQueue.main.async {
-            self.focusedIndex = targetIndex
+    private func handleOTPChange(_ newValue: String) {
+        let filtered = newValue.filter { $0.isNumber }
+        
+        if filtered.count > otpLength {
+            otpText = String(filtered.prefix(otpLength))
+        } else {
+            otpText = filtered
+        }
+        
+        if otpText.count == otpLength {
+            isFocused = false
+            verifyOTP()
         }
     }
     
     private func verifyOTP() {
-        let fullOTP = otpDigits.joined()
-        guard fullOTP.count == 4 else { return }
+        guard otpText.count == otpLength else { return }
         
         localErrorMessage = nil
-        authManager.verifyRegisterOTP(email: email, otp: fullOTP) { success in
+        authManager.verifyRegisterOTP(email: email, otp: otpText) { success in
             if !success {
-                // ยืนยันไม่ผ่าน -> เคลียร์ช่องและเด้งไปช่องแรก
-                otpDigits = Array(repeating: "", count: 4)
-                setFocus(to: 0)
+                otpText = ""
+                isFocused = true
             }
         }
     }
