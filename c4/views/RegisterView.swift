@@ -10,18 +10,19 @@ struct RegisterView: View {
     @State private var password: String = ""
     @State private var isPasswordVisible: Bool = false
     
-    // สถานะการสลับหน้าไปแสดง "Verify your email"
-    @State private var isEmailSent: Bool = false
+    // สถานะสำหรับหน้า OTP Verification
+    @State private var isOTPSent: Bool = false
+    @State private var otpCode: String = ""
     @State private var localErrorMessage: String? = nil
     
     // ตรวจจับ Focus ของ Input
     @FocusState private var focusedField: Field?
     
     enum Field {
-        case fullName, email, username, password
+        case fullName, email, username, password, otp
     }
     
-    // โทนสีตาม UI ในรูป
+    // โทนสี UI
     private let backgroundColor = Color.black
     private let inputBorderColor = Color.white.opacity(0.3)
     
@@ -29,9 +30,9 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            if isEmailSent {
-                // MARK: - Step 2: Verify Your Email View
-                verifyEmailView
+            if isOTPSent {
+                // MARK: - Step 2: Verify OTP View
+                verifyOTPView
                     .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 // MARK: - Step 1: Create Account Form
@@ -39,11 +40,11 @@ struct RegisterView: View {
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isEmailSent)
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isOTPSent)
         .navigationBarHidden(true)
     }
     
-    // MARK: - Form View (หน้าสมัครสมาชิก)
+    // MARK: - Step 1: Form View (หน้าสมัครสมาชิก)
     private var createAccountForm: some View {
         VStack(spacing: 0) {
             
@@ -65,7 +66,6 @@ struct RegisterView: View {
                 
                 Spacer()
                 
-                // เพื่อให้ Title อยู่ตรงกลางพอดี
                 Color.clear.frame(width: 16, height: 16)
             }
             .padding(.horizontal, 20)
@@ -87,17 +87,14 @@ struct RegisterView: View {
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
-                    // MARK: - Input Fields (Custom Floating Label)
+                    // Input Fields
                     VStack(spacing: 14) {
-                        
-                        // Full Name Field (เพิ่มเข้ามา)
                         customInputField(
                             title: "Full Name",
                             text: $fullName,
                             field: .fullName
                         )
                         
-                        // Email Field
                         customInputField(
                             title: "Email",
                             text: $email,
@@ -105,14 +102,12 @@ struct RegisterView: View {
                             keyboardType: .emailAddress
                         )
                         
-                        // Username Field
                         customInputField(
                             title: "Username",
                             text: $username,
                             field: .username
                         )
                         
-                        // Password Field
                         customPasswordField
                     }
                     
@@ -123,7 +118,7 @@ struct RegisterView: View {
                             .multilineTextAlignment(.center)
                     }
                     
-                    // MARK: - Sign Up Button
+                    // Sign Up Button
                     Button(action: validateAndRegister) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 12)
@@ -134,7 +129,7 @@ struct RegisterView: View {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .black))
                             } else {
-                                Text("Sign up")
+                                Text("Continue")
                                     .font(.system(size: 16, weight: .semibold))
                                     .foregroundColor(.black)
                             }
@@ -144,7 +139,7 @@ struct RegisterView: View {
                     .opacity(isFormIncomplete ? 0.5 : 1.0)
                     .padding(.top, 8)
                     
-                    // MARK: - Terms and Privacy Policy
+                    // Terms and Privacy Policy
                     VStack(spacing: 4) {
                         Text("By continuing, I accept Mammoth's")
                             .font(.system(size: 12))
@@ -170,7 +165,7 @@ struct RegisterView: View {
                     
                     Spacer(minLength: 40)
                     
-                    // MARK: - Footer Link to Login
+                    // Footer Link to Login
                     HStack(spacing: 4) {
                         Text("Already have an account?")
                             .font(.system(size: 14))
@@ -191,13 +186,15 @@ struct RegisterView: View {
         }
     }
     
-    // MARK: - Step 2: Verify Email Screen
-    private var verifyEmailView: some View {
+    // MARK: - Step 2: Verify OTP View (ปรับปรุงรับ OTP 4 หลัก)
+    private var verifyOTPView: some View {
         VStack(spacing: 0) {
             // Top Navigation Bar
             HStack {
                 Button(action: {
-                    isEmailSent = false
+                    withAnimation {
+                        isOTPSent = false
+                    }
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 16, weight: .semibold))
@@ -216,41 +213,70 @@ struct RegisterView: View {
                     .font(.system(size: 48))
                     .foregroundColor(.white)
                 
-                Text("Verify your email")
+                Text("Enter Verification Code")
                     .font(.system(size: 26, weight: .bold))
                     .foregroundColor(.white)
                 
                 VStack(spacing: 4) {
-                    Text("Tap on the link we sent to:")
+                    Text("We've sent a 4-digit OTP code to:")
                         .font(.system(size: 14))
                         .foregroundColor(.gray)
                     
                     Text(email)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.gray)
+                        .foregroundColor(.white)
                 }
-                .padding(.bottom, 12)
+                .padding(.bottom, 8)
                 
-                // ปุ่ม Open email app
-                Button(action: openEmailApp) {
+                // OTP Input Field (จำกัดสูงสุด 4 ตัวอักษร)
+                customInputField(
+                    title: "4-Digit OTP Code",
+                    text: Binding(
+                        get: { otpCode },
+                        set: { if $0.count <= 4 { otpCode = $0 } }
+                    ),
+                    field: .otp,
+                    keyboardType: .numberPad
+                )
+                .padding(.horizontal, 24)
+                
+                if let errorMessage = localErrorMessage ?? authManager.errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 13))
+                        .foregroundColor(.red)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 24)
+                }
+                
+                // ปุ่ม Submit Verify OTP
+                Button(action: verifyOTP) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color.white)
                             .frame(height: 48)
                         
-                        Text("Open email app")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(.black)
+                        if authManager.isLoading {
+                            ProgressView()
+                                .progressViewStyle(CircularProgressViewStyle(tint: .black))
+                        } else {
+                            Text("Verify & Create Account")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.black)
+                        }
                     }
                 }
+                .disabled(authManager.isLoading || otpCode.count != 4)
+                .opacity(otpCode.count != 4 ? 0.5 : 1.0)
                 .padding(.horizontal, 24)
+                .padding(.top, 8)
                 
-                // ปุ่ม Resend email
-                Button(action: resendEmail) {
-                    Text("Resend email")
+                // ปุ่ม Resend Code
+                Button(action: resendOTP) {
+                    Text("Resend OTP Code")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(.gray)
                 }
+                .disabled(authManager.isLoading)
                 .padding(.top, 8)
             }
             
@@ -258,9 +284,8 @@ struct RegisterView: View {
         }
     }
     
-    // MARK: - Helper Views & Components
+    // MARK: - Helper Views
     
-    // ช่อง Custom Input แบบมี Floating Title เล็กๆ ด้านบน
     private func customInputField(title: String, text: Binding<String>, field: Field, keyboardType: UIKeyboardType = .default) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             if !text.wrappedValue.isEmpty {
@@ -287,7 +312,6 @@ struct RegisterView: View {
         )
     }
     
-    // ช่อง Password Input
     private var customPasswordField: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !password.isEmpty {
@@ -326,6 +350,7 @@ struct RegisterView: View {
     }
     
     // MARK: - Validation & Actions
+    
     private var isFormIncomplete: Bool {
         fullName.isEmpty || email.isEmpty || username.isEmpty || password.isEmpty
     }
@@ -343,30 +368,40 @@ struct RegisterView: View {
             return
         }
         
-        guard password.count >= 6 else {
-            localErrorMessage = "Password must be at least 6 characters long."
+        guard password.count >= 8 else {
+            localErrorMessage = "Password must be at least 8 characters long."
             return
         }
         
-        // ส่งค่า fullName ร่วมกับข้อมูลอื่นไปยัง AuthManager
-        authManager.register(fullName: fullName, username: username, email: email, password: password)
+        // ส่งคำขอสร้าง OTP ไปยัง API register_request.php
+        authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
+            if success {
+                withAnimation {
+                    isOTPSent = true
+                }
+            }
+        }
+    }
+    
+    private func verifyOTP() {
+        localErrorMessage = nil
         
-        // สลับไปแสดงสเต็ปยืนยันอีเมล
-        withAnimation {
-            isEmailSent = true
+        guard otpCode.count == 4 else {
+            localErrorMessage = "OTP must be a 4-digit number."
+            return
+        }
+        
+        // ส่ง OTP ไปยืนยันที่ register_verify.php
+        authManager.verifyRegisterOTP(email: email, otp: otpCode) { success in
+            if success {
+                // สมัครและ Login สำเร็จ ระบบจะเปลี่ยนหน้าอัตโนมัติผ่าน authManager.isAuthenticated
+                presentationMode.wrappedValue.dismiss()
+            }
         }
     }
     
-    private func openEmailApp() {
-        if let mailURL = URL(string: "message://"), UIApplication.shared.canOpenURL(mailURL) {
-            UIApplication.shared.open(mailURL)
-        } else if let generalMailURL = URL(string: "https://mail.google.com") {
-            UIApplication.shared.open(generalMailURL)
-        }
-    }
-    
-    private func resendEmail() {
-        // ยิง API ส่งอีเมลอีกครั้ง
+    private func resendOTP() {
+        validateAndRegister()
     }
 }
 
