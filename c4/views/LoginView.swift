@@ -7,6 +7,9 @@ struct LoginView: View {
     @State private var userPassword: String = ""
     @State private var isPasswordVisible: Bool = false
     
+    // สถานะสำหรับเปิด/ปิด หน้า RegisterView (สมัครสมาชิก)
+    @State private var showRegisterView: Bool = false
+    
     // ตรวจจับสถานะการเปิด/ปิด แป้นพิมพ์
     @FocusState private var isInputFocused: Bool
     
@@ -185,8 +188,9 @@ struct LoginView: View {
                         .font(.system(size: 14))
                         .foregroundColor(.gray)
                     
+                    // กดปุ่ม Sign up เพื่อเปิดหน้าสร้างบัญชี
                     Button(action: {
-                        // Action สลับไปหน้า Register / Sign Up
+                        showRegisterView = true
                     }) {
                         Text("Sign up")
                             .font(.system(size: 14, weight: .bold))
@@ -197,6 +201,11 @@ struct LoginView: View {
                 .padding(.bottom, 20)
             }
             .padding(.horizontal, 24)
+        }
+        // เปิดหน้า RegisterView แบบ Modal FullScreen
+        .fullScreenCover(isPresented: $showRegisterView) {
+            RegisterView()
+                .environmentObject(authManager)
         }
     }
 }
