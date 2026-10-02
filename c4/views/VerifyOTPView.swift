@@ -93,7 +93,7 @@ struct VerifyOTPView: View {
                 Button(action: {
                     otpDigits = Array(repeating: "", count: 4)
                     localErrorMessage = nil
-                    focusedIndex = 0
+                    setFocus(to: 0)
                     onResend()
                 }) {
                     Text("Resend OTP Code")
@@ -108,9 +108,7 @@ struct VerifyOTPView: View {
         }
         .background(Color.black.ignoresSafeArea())
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                focusedIndex = 0
-            }
+            setFocus(to: 0)
         }
     }
     
@@ -126,10 +124,10 @@ struct VerifyOTPView: View {
                 otpDigits[i] = String(chars[i])
             }
             if chars.count >= 4 {
-                focusedIndex = nil
+                setFocus(to: nil)
                 verifyOTP()
             } else {
-                focusedIndex = chars.count
+                setFocus(to: chars.count)
             }
             return
         }
@@ -137,16 +135,23 @@ struct VerifyOTPView: View {
         if filtered.isEmpty {
             otpDigits[index] = ""
             if index > 0 {
-                focusedIndex = index - 1
+                setFocus(to: index - 1)
             }
         } else {
             otpDigits[index] = String(filtered.last!)
             if index < 3 {
-                focusedIndex = index + 1
+                setFocus(to: index + 1)
             } else {
-                focusedIndex = nil
+                setFocus(to: nil)
                 verifyOTP()
             }
+        }
+    }
+    
+    // 🟢 สลับ Focus อย่างปลอดภัยใน RunLoop ถัดไป
+    private func setFocus(to targetIndex: Int?) {
+        DispatchQueue.main.async {
+            self.focusedIndex = targetIndex
         }
     }
     
@@ -159,7 +164,7 @@ struct VerifyOTPView: View {
             if !success {
                 // ยืนยันไม่ผ่าน -> เคลียร์ช่องและเด้งไปช่องแรก
                 otpDigits = Array(repeating: "", count: 4)
-                focusedIndex = 0
+                setFocus(to: 0)
             }
         }
     }
