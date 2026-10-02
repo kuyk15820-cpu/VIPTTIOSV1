@@ -111,7 +111,11 @@ class AuthManager: ObservableObject {
                         self?.errorMessage = decoded.message
                     }
                 } catch {
-                    self?.errorMessage = "Invalid server response."
+                    if let rawString = String(data: data, encoding: .utf8), !rawString.isEmpty {
+                        self?.errorMessage = rawString
+                    } else {
+                        self?.errorMessage = "Invalid server response."
+                    }
                 }
             }
         }.resume()
@@ -156,7 +160,13 @@ class AuthManager: ObservableObject {
                         completion(false)
                     }
                 } catch {
-                    self?.errorMessage = "Failed to process request."
+                    // หากแปลง JSON ไม่ผ่าน ให้แสดงข้อความที่ตอบกลับมาจาก Server ตรงๆ บนหน้าจอ
+                    if let rawString = String(data: data, encoding: .utf8), !rawString.isEmpty {
+                        print("SERVER RAW RESPONSE: \(rawString)")
+                        self?.errorMessage = rawString
+                    } else {
+                        self?.errorMessage = "Failed to process request."
+                    }
                     completion(false)
                 }
             }
@@ -202,7 +212,11 @@ class AuthManager: ObservableObject {
                         completion(false)
                     }
                 } catch {
-                    self?.errorMessage = "Verification failed."
+                    if let rawString = String(data: data, encoding: .utf8), !rawString.isEmpty {
+                        self?.errorMessage = rawString
+                    } else {
+                        self?.errorMessage = "Verification failed."
+                    }
                     completion(false)
                 }
             }
@@ -243,7 +257,11 @@ class AuthManager: ObservableObject {
                         completion(false)
                     }
                 } catch {
-                    self?.errorMessage = "Failed to request password reset."
+                    if let rawString = String(data: data, encoding: .utf8), !rawString.isEmpty {
+                        self?.errorMessage = rawString
+                    } else {
+                        self?.errorMessage = "Failed to request password reset."
+                    }
                     completion(false)
                 }
             }
@@ -288,7 +306,11 @@ class AuthManager: ObservableObject {
                         completion(false)
                     }
                 } catch {
-                    self?.errorMessage = "Password reset failed."
+                    if let rawString = String(data: data, encoding: .utf8), !rawString.isEmpty {
+                        self?.errorMessage = rawString
+                    } else {
+                        self?.errorMessage = "Password reset failed."
+                    }
                     completion(false)
                 }
             }
