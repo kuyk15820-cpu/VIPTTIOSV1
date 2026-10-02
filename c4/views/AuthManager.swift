@@ -6,25 +6,26 @@ class AuthManager: ObservableObject {
     @Published var currentUser: User? = nil
     @Published var isLoading: Bool = false
     @Published var errorMessage: String? = nil
+    @Published var successMessage: String? = nil
     
     // ข้อมูลกรณีถูกแบน
     @Published var isBanned: Bool = false
     @Published var banInfo: BanInfo? = nil
 
-    private let baseURL = "https://f1x3r.org/f1x3r_auth" // ⚠️ เปลี่ยนเป็น URL Server ของคุณ
+    private let baseURL = "https://f1x3r.org/f1x3r_auth" // ⚠️ ปรับเปลี่ยนให้ตรงกับ Path ของคุณ
     private let tokenKey = "user_session_token"
 
     init() {
         checkAuthStatus()
     }
 
-    // MARK: - Get Token
+    // MARK: - Token Management
     private var token: String? {
         get { UserDefaults.standard.string(forKey: tokenKey) }
         set { UserDefaults.standard.set(newValue, forKey: tokenKey) }
     }
 
-    // MARK: - Check Auth Status
+    // MARK: - 1. Check Auth Status
     func checkAuthStatus() {
         guard let savedToken = token, !savedToken.isEmpty else {
             self.isAuthenticated = false
@@ -44,7 +45,6 @@ class AuthManager: ObservableObject {
                 }
 
                 if let httpResponse = response as? HTTPURLResponse {
-                    // กรณีถูกแบน (HTTP 403)
                     if httpResponse.statusCode == 403 {
                         if let banResponse = try? JSONDecoder().decode(APIResponse<User>.self, from: data) {
                             self?.handleBan(banInfo: banResponse.banInfo)
@@ -68,12 +68,13 @@ class AuthManager: ObservableObject {
         }.resume()
     }
 
-    // MARK: - Login
+    // MARK: - 2. Login
     func login(userLogin: String, userPassword: String) {
         guard let url = URL(string: "\(baseURL)/login.php") else { return }
         
         isLoading = true
         errorMessage = nil
+        successMessage = nil
 
         let body: [String: String] = [
             "user_login": userLogin,
@@ -116,12 +117,13 @@ class AuthManager: ObservableObject {
         }.resume()
     }
 
-    // MARK: - Register
-    func register(fullName: String, username: String, email: String, password: String) {
-        guard let url = URL(string: "\(baseURL)/register.php") else { return }
+    // MARK: - 3. Register Request (ส่ง OTP ไปที่ Email)
+    func requestRegisterOTP(fullName: String, username: String, email: String, password: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "\(baseURL)/register_request.php") else { return }
 
         isLoading = true
         errorMessage = nil
+        successMessage = nil
 
         let body: [String: String] = [
             "full_name": fullName,
@@ -135,11 +137,56 @@ class AuthManager: ObservableObject {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONSerialization.data(withJSONObject: body)
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             DispatchQueue.main.async {
                 self?.isLoading = false
                 guard let data = data, error == nil else {
                     self?.errorMessage = "Network error. Please try again."
+                    completion(false)
+                    return
+                }
+
+                do {
+                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    if decoded.status {
+                        self?.successMessage = decoded.message
+                        completion(true)
+                    } else {
+                        self?.errorMessage = decoded.message
+                        completion(false)
+                    }
+                } catch {
+                    self?.errorMessage = "Failed to process request."
+                    completion(false)
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: - 4. Register Verify (ยืนยัน OTP สมัครสมาชิก)
+    func verifyRegisterOTP(email: String, otp: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "\(baseURL)/register_verify.php") else { return }
+
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+
+        let body: [String: String] = [
+            "email": email,
+            "otp": otp
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                guard let data = data, error == nil else {
+                    self?.errorMessage = "Network error. Please try again."
+                    completion(false)
                     return
                 }
 
@@ -149,17 +196,106 @@ class AuthManager: ObservableObject {
                         self?.token = responseData.sessionToken
                         self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
+                        completion(true)
                     } else {
                         self?.errorMessage = decoded.message
+                        completion(false)
                     }
                 } catch {
-                    self?.errorMessage = "Registration failed."
+                    self?.errorMessage = "Verification failed."
+                    completion(false)
                 }
             }
         }.resume()
     }
 
-    // MARK: - Logout
+    // MARK: - 5. Password Reset Request (ขอ OTP สำหรับลืมรหัสผ่าน)
+    func requestPasswordReset(email: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "\(baseURL)/request_reset.php") else { return }
+
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+
+        let body: [String: String] = ["email": email]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                guard let data = data, error == nil else {
+                    self?.errorMessage = "Network error. Please try again."
+                    completion(false)
+                    return
+                }
+
+                do {
+                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    if decoded.status {
+                        self?.successMessage = decoded.message
+                        completion(true)
+                    } else {
+                        self?.errorMessage = decoded.message
+                        completion(false)
+                    }
+                } catch {
+                    self?.errorMessage = "Failed to request password reset."
+                    completion(false)
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: - 6. Reset Password (ยืนยัน OTP และเปลี่ยนรหัสผ่านใหม่)
+    func resetPassword(email: String, otp: String, newPassword: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "\(baseURL)/reset_password.php") else { return }
+
+        isLoading = true
+        errorMessage = nil
+        successMessage = nil
+
+        let body: [String: String] = [
+            "email": email,
+            "otp": otp,
+            "new_password": newPassword
+        ]
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+            DispatchQueue.main.async {
+                self?.isLoading = false
+                guard let data = data, error == nil else {
+                    self?.errorMessage = "Network error. Please try again."
+                    completion(false)
+                    return
+                }
+
+                do {
+                    let decoded = try JSONDecoder().decode(BaseAPIResponse.self, from: data)
+                    if decoded.status {
+                        self?.successMessage = decoded.message
+                        completion(true)
+                    } else {
+                        self?.errorMessage = decoded.message
+                        completion(false)
+                    }
+                } catch {
+                    self?.errorMessage = "Password reset failed."
+                    completion(false)
+                }
+            }
+        }.resume()
+    }
+
+    // MARK: - 7. Logout
     func logout() {
         guard let savedToken = token, let url = URL(string: "\(baseURL)/logout.php") else {
             logoutLocal()
@@ -188,6 +324,12 @@ class AuthManager: ObservableObject {
         self.isBanned = true
         self.banInfo = banInfo
     }
+}
+
+// MARK: - General Base Response Struct
+struct BaseAPIResponse: Codable {
+    let status: Bool
+    let message: String
 }
 
 // MARK: - Helper Data Struct for Auth API Response
