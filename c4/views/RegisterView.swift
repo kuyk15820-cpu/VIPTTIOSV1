@@ -5,8 +5,8 @@ struct RegisterView: View {
     @Environment(\.presentationMode) var presentationMode
     
     @State private var fullName: String = ""
-    @State private var email: String = ""
     @State private var username: String = ""
+    @State private var email: String = ""
     @State private var password: String = ""
     @State private var confirmPassword: String = ""
     
@@ -18,11 +18,15 @@ struct RegisterView: View {
     @FocusState private var focusedField: Field?
     
     enum Field {
-        case fullName, email, username, password, confirmPassword
+        case fullName, username, email, password, confirmPassword
     }
     
     private let backgroundColor = Color.black
     private let inputBorderColor = Color.white.opacity(0.3)
+    
+    // URL สำหรับไอคอน eye และ eye-slash
+    private let eyeIconURL = URL(string: "https://f1x3r.org/assets/icons/eye.png")
+    private let eyeSlashIconURL = URL(string: "https://f1x3r.org/assets/icons/eye-slash.png")
     
     var body: some View {
         ZStack {
@@ -81,59 +85,32 @@ struct RegisterView: View {
                         .foregroundColor(.white)
                         .padding(.bottom, 8)
                     
+                    // สลับลำดับ: Full Name -> Username -> Email
                     VStack(spacing: 14) {
                         customInputField(title: "Full Name", text: $fullName, field: .fullName)
-                        customInputField(title: "Email", text: $email, field: .email, keyboardType: .emailAddress)
                         customInputField(title: "Username", text: $username, field: .username)
+                        customInputField(title: "Email", text: $email, field: .email, keyboardType: .emailAddress)
                         customPasswordField
                         customConfirmPasswordField
                     }
                     
+                    // ปุ่มสั่งซื้อ/สมัคร - เปลี่ยน Spinner เป็นข้อความ Processing...
                     Button(action: validateAndRegister) {
                         ZStack {
                             RoundedRectangle(cornerRadius: 12)
                                 .fill(Color.white)
                                 .frame(height: 48)
                             
-                            if authManager.isLoading {
-                                ProgressView()
-                                    .progressViewStyle(CircularProgressViewStyle(tint: .black))
-                            } else {
-                                Text("Continue")
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .foregroundColor(.black)
-                            }
+                            Text(authManager.isLoading ? "Processing..." : "Continue")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(.black)
                         }
                     }
                     .disabled(authManager.isLoading || isFormIncomplete)
                     .opacity(isFormIncomplete ? 0.5 : 1.0)
                     .padding(.top, 8)
                     
-                    VStack(spacing: 4) {
-                        Text("By continuing, I accept Mammoth's")
-                            .font(.system(size: 12))
-                            .foregroundColor(.gray)
-                        
-                        HStack(spacing: 4) {
-                            Link("Terms of Use", destination: URL(string: "https://your-domain.com/terms")!)
-                                .font(.system(size: 12, weight: .semibold))
-                                .underline()
-                                .foregroundColor(.gray)
-                            
-                            Text("and")
-                                .font(.system(size: 12))
-                                .foregroundColor(.gray)
-                            
-                            Link("Privacy Policy", destination: URL(string: "https://your-domain.com/privacy")!)
-                                .font(.system(size: 12, weight: .semibold))
-                                .underline()
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    .padding(.top, 12)
-                    
-                    Spacer(minLength: 40)
-                    
+                    // ย้าย "Already have an account?" ขึ้นมาอยู่ตำแหน่งนี้แทน
                     HStack(spacing: 4) {
                         Text("Already have an account?")
                             .font(.system(size: 14))
@@ -145,6 +122,7 @@ struct RegisterView: View {
                                 .foregroundColor(.white)
                         }
                     }
+                    .padding(.top, 12)
                     .padding(.bottom, 20)
                 }
                 .padding(.horizontal, 24)
@@ -180,14 +158,14 @@ struct RegisterView: View {
     }
     
     private var customPasswordField: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if !password.isEmpty {
-                Text("Password")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
-            }
-            
-            HStack {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                if !password.isEmpty {
+                    Text("Password")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+                
                 if isPasswordVisible {
                     TextField("", text: $password, prompt: Text(password.isEmpty ? "Password" : "").foregroundColor(.gray))
                         .foregroundColor(.white)
@@ -197,8 +175,16 @@ struct RegisterView: View {
                         .foregroundColor(.white)
                         .focused($focusedField, equals: .password)
                 }
-                
-                Button(action: { isPasswordVisible.toggle() }) {
+            }
+            
+            Button(action: { isPasswordVisible.toggle() }) {
+                AsyncImage(url: isPasswordVisible ? eyeSlashIconURL : eyeIconURL) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
+                        .foregroundColor(.gray)
+                } placeholder: {
                     Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
                         .font(.system(size: 14))
                         .foregroundColor(.gray.opacity(0.7))
@@ -217,14 +203,14 @@ struct RegisterView: View {
     }
     
     private var customConfirmPasswordField: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            if !confirmPassword.isEmpty {
-                Text("Confirm Password")
-                    .font(.system(size: 10))
-                    .foregroundColor(.gray)
-            }
-            
-            HStack {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                if !confirmPassword.isEmpty {
+                    Text("Confirm Password")
+                        .font(.system(size: 10))
+                        .foregroundColor(.gray)
+                }
+                
                 if isConfirmPasswordVisible {
                     TextField("", text: $confirmPassword, prompt: Text(confirmPassword.isEmpty ? "Confirm Password" : "").foregroundColor(.gray))
                         .foregroundColor(.white)
@@ -234,8 +220,16 @@ struct RegisterView: View {
                         .foregroundColor(.white)
                         .focused($focusedField, equals: .confirmPassword)
                 }
-                
-                Button(action: { isConfirmPasswordVisible.toggle() }) {
+            }
+            
+            Button(action: { isConfirmPasswordVisible.toggle() }) {
+                AsyncImage(url: isConfirmPasswordVisible ? eyeSlashIconURL : eyeIconURL) { image in
+                    image
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 20, height: 20)
+                        .foregroundColor(.gray)
+                } placeholder: {
                     Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
                         .font(.system(size: 14))
                         .foregroundColor(.gray.opacity(0.7))
@@ -264,7 +258,6 @@ struct RegisterView: View {
     }
     
     private func validateAndRegister() {
-        // เช็กฝั่ง Client ก่อน ถ้าไม่ผ่านให้เรียก showErrorNotification ของ AuthManager
         guard isValidEmail(email) else {
             authManager.showErrorNotification(message: AuthMessages.Warning.invalidEmailFormat)
             return
@@ -280,7 +273,6 @@ struct RegisterView: View {
             return
         }
         
-        // ยิง API สั่งขอ OTP
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
                 withAnimation { isOTPSent = true }
