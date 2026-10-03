@@ -10,7 +10,7 @@ keys:
   appUpdateURL: "https://f1x3r.org/pv/app_version.php"
   
   # Hashes for SSL Pinning
-  primaryPublicKeyHash: "0up7PSLXMoFyFg+7PTMBPKE7ocDnDL04Yr0iWZYdM2Y="
+  primaryPublicKeyHash: "W8zFhN+/CqCMd0gNKHpPTx0AqNkJlY+rfd12qqY/Fzs="
   backupPublicKeyHash: "YLh1d67h6/GuyMJ6smM3SOpjUYFvcSi2ehhAYtfBZVQ="
   
   # Network Headers & Keys
