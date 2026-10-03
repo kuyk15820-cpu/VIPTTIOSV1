@@ -36,19 +36,16 @@ struct RegisterView: View {
                 VerifyOTPView(
                     email: email,
                     onBack: {
-                        withAnimation { isOTPSent = false }
+                        isOTPSent = false
                     },
                     onResend: {
                         validateAndRegister()
                     }
                 )
-                .transition(.move(edge: .trailing).combined(with: .opacity))
             } else {
                 createAccountForm
-                    .transition(.move(edge: .leading).combined(with: .opacity))
             }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: isOTPSent)
         .navigationBarHidden(true)
     }
     
@@ -110,7 +107,7 @@ struct RegisterView: View {
                     .opacity(isFormIncomplete ? 0.5 : 1.0)
                     .padding(.top, 8)
                     
-                    // ย้าย "Already have an account?" ขึ้นมาอยู่ตำแหน่งนี้แทน
+                    // "Already have an account?" อยู่ตำแหน่งนี้
                     HStack(spacing: 4) {
                         Text("Already have an account?")
                             .font(.system(size: 14))
@@ -275,7 +272,7 @@ struct RegisterView: View {
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
-                withAnimation { isOTPSent = true }
+                isOTPSent = true
             }
         }
     }
