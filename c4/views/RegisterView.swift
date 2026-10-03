@@ -63,10 +63,13 @@ struct RegisterView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🟢 แสดง Navigation Bar สำหรับหน้านี้เพื่อรองรับ Navigation Destination
         .toolbar(.visible, for: .navigationBar)
-        // 🟢 Push ไปยัง VerifyOTPView เมื่อส่ง OTP สำเร็จเพื่ออนิเมชั่นและ Navigation Stack ที่ถูกต้อง
+        // 🟢 Push ไปยัง VerifyOTPView พร้อมส่ง onBack ให้ตรงตาม Signature
         .navigationDestination(isPresented: $isOTPSent) {
             VerifyOTPView(
                 email: email,
+                onBack: {
+                    isOTPSent = false
+                },
                 onResend: {
                     validateAndRegister()
                 }
@@ -274,7 +277,10 @@ struct RegisterView: View {
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
-                isOTPSent = true
+                // 🟢 รันบน Main Thread ป้องกัน UI Freeze
+                DispatchQueue.main.async {
+                    self.isOTPSent = true
+                }
             }
         }
     }
