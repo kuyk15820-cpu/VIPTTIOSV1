@@ -61,6 +61,8 @@ struct RegisterView: View {
         }
         .navigationTitle("Sign up")
         .navigationBarTitleDisplayMode(.inline)
+        // 🟢 แสดง Navigation Bar สำหรับหน้านี้เพื่อรองรับ Navigation Destination
+        .toolbar(.visible, for: .navigationBar)
         // 🟢 Push ไปยัง VerifyOTPView เมื่อส่ง OTP สำเร็จเพื่ออนิเมชั่นและ Navigation Stack ที่ถูกต้อง
         .navigationDestination(isPresented: $isOTPSent) {
             VerifyOTPView(
