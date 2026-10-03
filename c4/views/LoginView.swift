@@ -200,7 +200,8 @@ struct LoginView: View {
                 }
                 .padding(.horizontal, 24)
             }
-            .navigationBarHidden(true)
+            // 🟢 เปลี่ยนมาใช้ .toolbar(.hidden, for: .navigationBar) แทน .navigationBarHidden(true)
+            .toolbar(.hidden, for: .navigationBar)
             // เปิดหน้า ForgotPasswordView
             .sheet(isPresented: $showForgotPasswordView) {
                 ForgotPasswordView()
