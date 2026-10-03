@@ -13,20 +13,37 @@ struct VerifyOTPView: View {
     private let otpLength = 4
     private let inputBorderColor = Color.white.opacity(0.3)
     
+    // MARK: - Navigation Bar Customization
+    init(email: String, onBack: @escaping () -> Void, onResend: @escaping () -> Void) {
+        self.email = email
+        self.onBack = onBack
+        self.onResend = onResend
+        
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .black // ตั้งสีพื้นหลังเป็นดำทึบ
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        // 🟢 เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
+        
+        // 1. ตั้งสีลูกศรย้อนกลับของระบบให้เป็นสีขาว
+        UINavigationBar.appearance().tintColor = .white
+        
+        // 2. ซ่อน Text ของปุ่ม Back โดยตั้งสีตัวอักษรเป็นโปร่งใส (.clear)
+        let backButtonAppearance = UIBarButtonItemAppearance()
+        backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
+        appearance.backButtonAppearance = backButtonAppearance
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
-            // Top Navigation Bar
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            
             Spacer()
             
             VStack(spacing: 20) {
@@ -90,7 +107,7 @@ struct VerifyOTPView: View {
                 }
                 .padding(.horizontal, 24)
                 
-                // 🟢 เปลี่ยนข้อความตามสถานะการตรวจสอบ (สลับข้อความแทนการใช้ Spinner)
+                // 🟢 เปลี่ยนข้อความตามสถานะการตรวจสอบ
                 Button(action: {
                     otpText = ""
                     isFocused = true
@@ -107,6 +124,8 @@ struct VerifyOTPView: View {
             Spacer()
         }
         .background(Color.black.ignoresSafeArea())
+        .navigationTitle("Verify OTP")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
@@ -152,6 +171,8 @@ struct VerifyOTPView: View {
 }
 
 #Preview {
-    VerifyOTPView(email: "test@example.com", onBack: {}, onResend: {})
-        .environmentObject(AuthManager())
+    NavigationStack {
+        VerifyOTPView(email: "test@example.com", onBack: {}, onResend: {})
+            .environmentObject(AuthManager())
+    }
 }
