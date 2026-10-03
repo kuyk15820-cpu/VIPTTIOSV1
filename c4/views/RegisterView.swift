@@ -46,84 +46,62 @@ struct RegisterView: View {
                 createAccountForm
             }
         }
-        .navigationBarHidden(true)
+        .navigationTitle("Sign up")
+        .navigationBarTitleDisplayMode(.inline)
     }
     
     // MARK: - Step 1: Form View
     private var createAccountForm: some View {
-        VStack(spacing: 0) {
-            
-            HStack {
-                Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                Spacer()
-                Text("Sign up")
-                    .font(.system(size: 16, weight: .semibold))
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 24) {
+                Image(systemName: "lasso.and.sparkles")
+                    .font(.system(size: 36))
                     .foregroundColor(.white)
-                Spacer()
-                Color.clear.frame(width: 16, height: 16)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 24)
-            
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 24) {
-                    Image(systemName: "lasso.and.sparkles")
-                        .font(.system(size: 36))
-                        .foregroundColor(.white)
-                        .padding(.top, 12)
-                    
-                    Text("Create your account")
-                        .font(.system(size: 26, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.bottom, 8)
-                    
-                    // สลับลำดับ: Full Name -> Username -> Email
-                    VStack(spacing: 14) {
-                        customInputField(title: "Full Name", text: $fullName, field: .fullName)
-                        customInputField(title: "Username", text: $username, field: .username)
-                        customInputField(title: "Email", text: $email, field: .email, keyboardType: .emailAddress)
-                        customPasswordField
-                        customConfirmPasswordField
-                    }
-                    
-                    // ปุ่มสั่งซื้อ/สมัคร - เปลี่ยน Spinner เป็นข้อความ Processing...
-                    Button(action: validateAndRegister) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.white)
-                                .frame(height: 48)
-                            
-                            Text(authManager.isLoading ? "Processing..." : "Continue")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(.black)
-                        }
-                    }
-                    .disabled(authManager.isLoading || isFormIncomplete)
-                    .opacity(isFormIncomplete ? 0.5 : 1.0)
-                    .padding(.top, 8)
-                    
-                    // "Already have an account?" อยู่ตำแหน่งนี้
-                    HStack(spacing: 4) {
-                        Text("Already have an account?")
-                            .font(.system(size: 14))
-                            .foregroundColor(.gray)
-                        
-                        Button(action: { presentationMode.wrappedValue.dismiss() }) {
-                            Text("Log in")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(.white)
-                        }
-                    }
                     .padding(.top, 12)
-                    .padding(.bottom, 20)
+                
+                Text("Create your account")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.bottom, 8)
+                
+                VStack(spacing: 14) {
+                    customInputField(title: "Full Name", text: $fullName, field: .fullName)
+                    customInputField(title: "Username", text: $username, field: .username)
+                    customInputField(title: "Email", text: $email, field: .email, keyboardType: .emailAddress)
+                    customPasswordField
+                    customConfirmPasswordField
                 }
-                .padding(.horizontal, 24)
+                
+                Button(action: validateAndRegister) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.white)
+                            .frame(height: 48)
+                        
+                        Text(authManager.isLoading ? "Processing..." : "Continue")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.black)
+                    }
+                }
+                .disabled(authManager.isLoading || isFormIncomplete)
+                .opacity(isFormIncomplete ? 0.5 : 1.0)
+                .padding(.top, 8)
+                
+                HStack(spacing: 4) {
+                    Text("Already have an account?")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                    
+                    Button(action: { presentationMode.wrappedValue.dismiss() }) {
+                        Text("Log in")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(.white)
+                    }
+                }
+                .padding(.top, 12)
+                .padding(.bottom, 20)
             }
+            .padding(.horizontal, 24)
         }
     }
     
@@ -279,6 +257,8 @@ struct RegisterView: View {
 }
 
 #Preview {
-    RegisterView()
-        .environmentObject(AuthManager())
+    NavigationView {
+        RegisterView()
+            .environmentObject(AuthManager())
+    }
 }
