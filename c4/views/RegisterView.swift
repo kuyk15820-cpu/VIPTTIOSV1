@@ -32,15 +32,18 @@ struct RegisterView: View {
     init() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .black // ตั้งสีพื้นหลัง Navigation Bar เป็นสีดำทึบ
+        appearance.backgroundColor = .black // ตั้งสีพื้นหลังเป็นดำทึบ
         appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
         appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        // 🟢 เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
+        appearance.shadowColor = .clear
+        appearance.shadowImage = UIImage()
         
         // 1. ตั้งสีลูกศรย้อนกลับของระบบให้เป็นสีขาว
         UINavigationBar.appearance().tintColor = .white
         
         // 2. ซ่อน Text ของปุ่ม Back โดยตั้งสีตัวอักษรเป็นโปร่งใส (.clear)
-        // ลูกศรเดิมของระบบจะยังคงตำแหน่งเดิมเป๊ะ ไม่ขยับเบี้ยว
         let backButtonAppearance = UIBarButtonItemAppearance()
         backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
         appearance.backButtonAppearance = backButtonAppearance
