@@ -13,7 +13,8 @@ struct RegisterView: View {
     @State private var isPasswordVisible: Bool = false
     @State private var isConfirmPasswordVisible: Bool = false
     
-    @State private var isOTPSent: Bool = false
+    // 🟢 เปลี่ยนมาใช้ State สำหรับควบคุม Navigation Push
+    @State private var navigateToOTP: Bool = false
     
     @FocusState private var focusedField: Field?
     
@@ -57,22 +58,23 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            if isOTPSent {
-                VerifyOTPView(
-                    email: email,
-                    onBack: {
-                        isOTPSent = false
-                    },
-                    onResend: {
-                        validateAndRegister()
-                    }
-                )
-            } else {
-                createAccountForm
-            }
+            createAccountForm
         }
         .navigationTitle("Sign up")
         .navigationBarTitleDisplayMode(.inline)
+        // 🟢 นำทางไปยัง VerifyOTPView ผ่าน NavigationStack (แก้ไขปัญหา Animation และปุ่ม Back ย้อนกลับผิดหน้า)
+        .navigationDestination(isPresented: $navigateToOTP) {
+            VerifyOTPView(
+                email: email,
+                onBack: {
+                    navigateToOTP = false
+                },
+                onResend: {
+                    validateAndRegister()
+                }
+            )
+            .environmentObject(authManager)
+        }
     }
     
     // MARK: - Step 1: Form View
@@ -275,7 +277,8 @@ struct RegisterView: View {
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
-                isOTPSent = true
+                // 🟢 สั่ง Push ไปยังหน้า VerifyOTPView ผ่าน NavigationStack
+                navigateToOTP = true
             }
         }
     }
