@@ -63,13 +63,10 @@ struct RegisterView: View {
         .navigationBarTitleDisplayMode(.inline)
         // 🟢 แสดง Navigation Bar สำหรับหน้านี้เพื่อรองรับ Navigation Destination
         .toolbar(.visible, for: .navigationBar)
-        // 🟢 Push ไปยัง VerifyOTPView พร้อมส่ง onBack ให้ตรงตาม Signature
+        // 🟢 Push ไปยัง VerifyOTPView เมื่อส่ง OTP สำเร็จ
         .navigationDestination(isPresented: $isOTPSent) {
             VerifyOTPView(
                 email: email,
-                onBack: {
-                    isOTPSent = false
-                },
                 onResend: {
                     validateAndRegister()
                 }
