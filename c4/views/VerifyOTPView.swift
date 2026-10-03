@@ -2,9 +2,9 @@ import SwiftUI
 
 struct VerifyOTPView: View {
     @EnvironmentObject var authManager: AuthManager
+    @Environment(\.presentationMode) var presentationMode
     
     let email: String
-    var onBack: () -> Void
     var onResend: () -> Void
     
     @State private var otpText: String = ""
@@ -14,99 +14,85 @@ struct VerifyOTPView: View {
     private let inputBorderColor = Color.white.opacity(0.3)
     
     var body: some View {
-        VStack(spacing: 0) {
-            // Top Navigation Bar
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            
+        VStack(spacing: 20) {
             Spacer()
             
-            VStack(spacing: 20) {
-                // Email Icon
-                Image(systemName: "envelope.badge")
-                    .font(.system(size: 48))
+            // Email Icon
+            Image(systemName: "envelope.badge")
+                .font(.system(size: 48))
+                .foregroundColor(.white)
+            
+            Text("Enter Verification Code")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundColor(.white)
+            
+            VStack(spacing: 4) {
+                Text("We've sent a 4-digit OTP code to:")
+                    .font(.system(size: 14))
+                    .foregroundColor(.gray)
+                
+                Text(email)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundColor(.white)
-                
-                Text("Enter Verification Code")
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundColor(.white)
-                
-                VStack(spacing: 4) {
-                    Text("We've sent a 4-digit OTP code to:")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray)
-                    
-                    Text(email)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.white)
-                }
-                .padding(.bottom, 8)
-                
-                // 🟢 OTP Display Cards + Hidden Input Field
-                ZStack {
-                    // 1. Hidden TextField สำหรับรับ Input จริง
-                    TextField("", text: $otpText)
-                        .keyboardType(.numberPad)
-                        .textContentType(.oneTimeCode)
-                        .focused($isFocused)
-                        .accentColor(.clear)
-                        .foregroundColor(.clear)
-                        .opacity(0.01)
-                        .onChange(of: otpText) { newValue in
-                            handleOTPChange(newValue)
-                        }
-                    
-                    // 2. Visual Card Display
-                    HStack(spacing: 12) {
-                        ForEach(0..<otpLength, id: \.self) { index in
-                            let digit = getDigit(at: index)
-                            let isCurrentFocus = isFocused && (index == otpText.count || (index == otpLength - 1 && otpText.count == otpLength))
-                            
-                            Text(digit)
-                                .font(.system(size: 22, weight: .bold))
-                                .foregroundColor(.white)
-                                .frame(width: 56, height: 56)
-                                .background(Color.clear)
-                                .cornerRadius(12)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12)
-                                        .stroke(isCurrentFocus ? Color.white : inputBorderColor, lineWidth: 1.5)
-                                )
-                        }
-                    }
-                    .allowsHitTesting(false)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    isFocused = true
-                }
-                .padding(.horizontal, 24)
-                
-                // 🟢 เปลี่ยนข้อความตามสถานะการตรวจสอบ (สลับข้อความแทนการใช้ Spinner)
-                Button(action: {
-                    otpText = ""
-                    isFocused = true
-                    onResend()
-                }) {
-                    Text(authManager.isLoading ? "Processing" : "Resend OTP Code")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(authManager.isLoading ? .white.opacity(0.6) : .gray)
-                }
-                .disabled(authManager.isLoading)
-                .padding(.top, 12)
             }
+            .padding(.bottom, 8)
+            
+            // 🟢 OTP Display Cards + Hidden Input Field
+            ZStack {
+                TextField("", text: $otpText)
+                    .keyboardType(.numberPad)
+                    .textContentType(.oneTimeCode)
+                    .focused($isFocused)
+                    .accentColor(.clear)
+                    .foregroundColor(.clear)
+                    .opacity(0.01)
+                    .onChange(of: otpText) { newValue in
+                        handleOTPChange(newValue)
+                    }
+                
+                HStack(spacing: 12) {
+                    ForEach(0..<otpLength, id: \.self) { index in
+                        let digit = getDigit(at: index)
+                        let isCurrentFocus = isFocused && (index == otpText.count || (index == otpLength - 1 && otpText.count == otpLength))
+                        
+                        Text(digit)
+                            .font(.system(size: 22, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 56, height: 56)
+                            .background(Color.clear)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(isCurrentFocus ? Color.white : inputBorderColor, lineWidth: 1.5)
+                            )
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isFocused = true
+            }
+            .padding(.horizontal, 24)
+            
+            Button(action: {
+                otpText = ""
+                isFocused = true
+                onResend()
+            }) {
+                Text(authManager.isLoading ? "Processing" : "Resend OTP Code")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(authManager.isLoading ? .white.opacity(0.6) : .gray)
+            }
+            .disabled(authManager.isLoading)
+            .padding(.top, 12)
             
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.black.ignoresSafeArea())
+        .navigationTitle("Verification")
+        .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 isFocused = true
@@ -115,7 +101,6 @@ struct VerifyOTPView: View {
     }
     
     // MARK: - Helper Functions
-    
     private func getDigit(at index: Int) -> String {
         if index < otpText.count {
             let start = otpText.index(otpText.startIndex, offsetBy: index)
@@ -152,6 +137,8 @@ struct VerifyOTPView: View {
 }
 
 #Preview {
-    VerifyOTPView(email: "test@example.com", onBack: {}, onResend: {})
-        .environmentObject(AuthManager())
+    NavigationStack {
+        VerifyOTPView(email: "test@example.com", onResend: {})
+            .environmentObject(AuthManager())
+    }
 }
