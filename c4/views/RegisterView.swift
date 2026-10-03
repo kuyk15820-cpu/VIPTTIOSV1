@@ -32,11 +32,11 @@ struct RegisterView: View {
     init() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .black // ตั้งสีพื้นหลัง Navigation Bar เป็นสีดำทึบ
+        appearance.backgroundColor = .black // ตั้งสีพื้นหลังเป็นดำทึบ
         appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
         appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
         
-        // เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
+        // 🟢 เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
         appearance.shadowColor = .clear
         appearance.shadowImage = UIImage()
         
@@ -57,21 +57,22 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            createAccountForm
+            if isOTPSent {
+                VerifyOTPView(
+                    email: email,
+                    onBack: {
+                        isOTPSent = false
+                    },
+                    onResend: {
+                        validateAndRegister()
+                    }
+                )
+            } else {
+                createAccountForm
+            }
         }
         .navigationTitle("Sign up")
         .navigationBarTitleDisplayMode(.inline)
-        // 🟢 แสดง Navigation Bar สำหรับหน้านี้เพื่อรองรับ Navigation Destination
-        .toolbar(.visible, for: .navigationBar)
-        // 🟢 Push ไปยัง VerifyOTPView เมื่อส่ง OTP สำเร็จ
-        .navigationDestination(isPresented: $isOTPSent) {
-            VerifyOTPView(
-                email: email,
-                onResend: {
-                    validateAndRegister()
-                }
-            )
-        }
     }
     
     // MARK: - Step 1: Form View
@@ -274,10 +275,7 @@ struct RegisterView: View {
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
-                // 🟢 รันบน Main Thread ป้องกัน UI Freeze
-                DispatchQueue.main.async {
-                    self.isOTPSent = true
-                }
+                isOTPSent = true
             }
         }
     }
