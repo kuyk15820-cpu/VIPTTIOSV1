@@ -13,7 +13,7 @@ struct RegisterView: View {
     @State private var isPasswordVisible: Bool = false
     @State private var isConfirmPasswordVisible: Bool = false
     
-    // 🟢 เปลี่ยนมาใช้ State สำหรับควบคุม Navigation Push
+    // 🟢 ใช้ควบคุมการ Push ไปยัง VerifyOTPView
     @State private var navigateToOTP: Bool = false
     
     @FocusState private var focusedField: Field?
@@ -37,7 +37,7 @@ struct RegisterView: View {
         appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
         appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
         
-        // 🟢 เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
+        // เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
         appearance.shadowColor = .clear
         appearance.shadowImage = UIImage()
         
@@ -58,23 +58,26 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
+            // 🟢 NavigationLink แบบซ่อนสำหรับ Trigger การย้ายหน้า (แก้ปัญหาติดค้างหน้า Register)
+            NavigationLink(
+                destination: VerifyOTPView(
+                    email: email,
+                    onBack: {
+                        navigateToOTP = false
+                    },
+                    onResend: {
+                        resendOTP()
+                    }
+                ).environmentObject(authManager),
+                isActive: $navigateToOTP
+            ) {
+                EmptyView()
+            }
+            
             createAccountForm
         }
         .navigationTitle("Sign up")
         .navigationBarTitleDisplayMode(.inline)
-        // 🟢 นำทางไปยัง VerifyOTPView ผ่าน NavigationStack (แก้ไขปัญหา Animation และปุ่ม Back ย้อนกลับผิดหน้า)
-        .navigationDestination(isPresented: $navigateToOTP) {
-            VerifyOTPView(
-                email: email,
-                onBack: {
-                    navigateToOTP = false
-                },
-                onResend: {
-                    validateAndRegister()
-                }
-            )
-            .environmentObject(authManager)
-        }
     }
     
     // MARK: - Step 1: Form View
@@ -277,10 +280,14 @@ struct RegisterView: View {
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
             if success {
-                // 🟢 สั่ง Push ไปยังหน้า VerifyOTPView ผ่าน NavigationStack
-                navigateToOTP = true
+                self.navigateToOTP = true
             }
         }
+    }
+    
+    // 🟢 แยกการกดขอ Resend OTP แยกต่างหาก ไม่เรียก validateAndRegister() ซ้ำ
+    private func resendOTP() {
+        authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { _ in }
     }
 }
 
