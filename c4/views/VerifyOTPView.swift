@@ -9,7 +9,6 @@ struct VerifyOTPView: View {
     
     @State private var otpText: String = ""
     @FocusState private var isFocused: Bool
-    @State private var localErrorMessage: String? = nil
     
     private let otpLength = 4
     private let inputBorderColor = Color.white.opacity(0.3)
@@ -65,7 +64,7 @@ struct VerifyOTPView: View {
                             handleOTPChange(newValue)
                         }
                     
-                    // 2. Visual Card Display (ดีไซน์คงเดิม 100%)
+                    // 2. Visual Card Display
                     HStack(spacing: 12) {
                         ForEach(0..<otpLength, id: \.self) { index in
                             let digit = getDigit(at: index)
@@ -91,30 +90,15 @@ struct VerifyOTPView: View {
                 }
                 .padding(.horizontal, 24)
                 
-                if authManager.isLoading {
-                    ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
-                        .padding(.vertical, 8)
-                }
-                
-                if let errorMessage = localErrorMessage ?? authManager.errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 13))
-                        .foregroundColor(.red)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 24)
-                }
-                
-                // ปุ่ม Resend Code
+                // 🟢 เปลี่ยนข้อความตามสถานะการตรวจสอบ (สลับข้อความแทนการใช้ Spinner)
                 Button(action: {
                     otpText = ""
-                    localErrorMessage = nil
                     isFocused = true
                     onResend()
                 }) {
-                    Text("Resend OTP Code")
+                    Text(authManager.isLoading ? "Processing" : "Resend OTP Code")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(.gray)
+                        .foregroundColor(authManager.isLoading ? .white.opacity(0.6) : .gray)
                 }
                 .disabled(authManager.isLoading)
                 .padding(.top, 12)
@@ -158,7 +142,6 @@ struct VerifyOTPView: View {
     private func verifyOTP() {
         guard otpText.count == otpLength else { return }
         
-        localErrorMessage = nil
         authManager.verifyRegisterOTP(email: email, otp: otpText) { success in
             if !success {
                 otpText = ""
