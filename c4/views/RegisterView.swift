@@ -28,6 +28,28 @@ struct RegisterView: View {
     private let eyeIconURL = URL(string: "https://f1x3r.org/assets/icons/eye.png")
     private let eyeSlashIconURL = URL(string: "https://f1x3r.org/assets/icons/eye-slash.png")
     
+    // MARK: - Navigation Bar Customization
+    init() {
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = .black // ตั้งสีพื้นหลัง Navigation Bar เป็นสีดำทึบ
+        appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
+        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        
+        // 1. ตั้งสีลูกศรย้อนกลับของระบบให้เป็นสีขาว
+        UINavigationBar.appearance().tintColor = .white
+        
+        // 2. ซ่อน Text ของปุ่ม Back โดยตั้งสีตัวอักษรเป็นโปร่งใส (.clear)
+        // ลูกศรเดิมของระบบจะยังคงตำแหน่งเดิมเป๊ะ ไม่ขยับเบี้ยว
+        let backButtonAppearance = UIBarButtonItemAppearance()
+        backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
+        appearance.backButtonAppearance = backButtonAppearance
+        
+        UINavigationBar.appearance().standardAppearance = appearance
+        UINavigationBar.appearance().scrollEdgeAppearance = appearance
+        UINavigationBar.appearance().compactAppearance = appearance
+    }
+    
     var body: some View {
         ZStack {
             backgroundColor.ignoresSafeArea()
@@ -257,7 +279,7 @@ struct RegisterView: View {
 }
 
 #Preview {
-    NavigationView {
+    NavigationStack {
         RegisterView()
             .environmentObject(AuthManager())
     }
