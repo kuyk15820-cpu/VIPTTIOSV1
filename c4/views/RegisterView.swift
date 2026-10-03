@@ -32,11 +32,11 @@ struct RegisterView: View {
     init() {
         let appearance = UINavigationBarAppearance()
         appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .black // ตั้งสีพื้นหลังเป็นดำทึบ
+        appearance.backgroundColor = .black // ตั้งสีพื้นหลัง Navigation Bar เป็นสีดำทึบ
         appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
         appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
         
-        // 🟢 เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
+        // เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
         appearance.shadowColor = .clear
         appearance.shadowImage = UIImage()
         
@@ -57,22 +57,19 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            if isOTPSent {
-                VerifyOTPView(
-                    email: email,
-                    onBack: {
-                        isOTPSent = false
-                    },
-                    onResend: {
-                        validateAndRegister()
-                    }
-                )
-            } else {
-                createAccountForm
-            }
+            createAccountForm
         }
         .navigationTitle("Sign up")
         .navigationBarTitleDisplayMode(.inline)
+        // 🟢 Push ไปยัง VerifyOTPView เมื่อส่ง OTP สำเร็จเพื่ออนิเมชั่นและ Navigation Stack ที่ถูกต้อง
+        .navigationDestination(isPresented: $isOTPSent) {
+            VerifyOTPView(
+                email: email,
+                onResend: {
+                    validateAndRegister()
+                }
+            )
+        }
     }
     
     // MARK: - Step 1: Form View
