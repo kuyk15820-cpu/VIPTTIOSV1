@@ -1,9 +1,19 @@
 import SwiftUI
 
+// MARK: - Auth Step
+private enum RegisterStep {
+    case register
+    case verifyOTP
+}
+
 struct RegisterView: View {
     @EnvironmentObject var authManager: AuthManager
     @Environment(\.presentationMode) var presentationMode
     
+    // MARK: - Flow Step State
+    @State private var currentStep: RegisterStep = .register
+    
+    // MARK: - Form States
     @State private var fullName: String = ""
     @State private var username: String = ""
     @State private var email: String = ""
@@ -13,8 +23,10 @@ struct RegisterView: View {
     @State private var isPasswordVisible: Bool = false
     @State private var isConfirmPasswordVisible: Bool = false
     
-    // 🟢 ใช้ควบคุมการ Push ไปยัง VerifyOTPView
-    @State private var navigateToOTP: Bool = false
+    // MARK: - OTP States
+    @State private var otpText: String = ""
+    @FocusState private var isOTPFocused: Bool
+    private let otpLength = 4
     
     @FocusState private var focusedField: Field?
     
@@ -25,62 +37,35 @@ struct RegisterView: View {
     private let backgroundColor = Color.black
     private let inputBorderColor = Color.white.opacity(0.3)
     
-    // URL สำหรับไอคอน eye และ eye-slash
     private let eyeIconURL = URL(string: "https://f1x3r.org/assets/icons/eye.png")
     private let eyeSlashIconURL = URL(string: "https://f1x3r.org/assets/icons/eye-slash.png")
-    
-    // MARK: - Navigation Bar Customization
-    init() {
-        let appearance = UINavigationBarAppearance()
-        appearance.configureWithOpaqueBackground()
-        appearance.backgroundColor = .black // ตั้งสีพื้นหลังเป็นดำทึบ
-        appearance.titleTextAttributes = [.foregroundColor: UIColor.white] // สี Title
-        appearance.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
-        
-        // เอาเส้นแบ่ง / เงาใต้ Navigation Bar ออก ให้กลมกลืนเป็นสีดำล้วน
-        appearance.shadowColor = .clear
-        appearance.shadowImage = UIImage()
-        
-        // 1. ตั้งสีลูกศรย้อนกลับของระบบให้เป็นสีขาว
-        UINavigationBar.appearance().tintColor = .white
-        
-        // 2. ซ่อน Text ของปุ่ม Back โดยตั้งสีตัวอักษรเป็นโปร่งใส (.clear)
-        let backButtonAppearance = UIBarButtonItemAppearance()
-        backButtonAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.clear]
-        appearance.backButtonAppearance = backButtonAppearance
-        
-        UINavigationBar.appearance().standardAppearance = appearance
-        UINavigationBar.appearance().scrollEdgeAppearance = appearance
-        UINavigationBar.appearance().compactAppearance = appearance
-    }
     
     var body: some View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            // 🟢 NavigationLink แบบซ่อนสำหรับ Trigger การย้ายหน้า
-            NavigationLink(
-                destination: VerifyOTPView(
-                    email: email,
-                    onBack: {
-                        navigateToOTP = false
-                    },
-                    onResend: {
-                        resendOTP()
-                    }
-                ).environmentObject(authManager),
-                isActive: $navigateToOTP
-            ) {
-                EmptyView()
+            // 🟢 Render View ตาม Step ปัจจุบัน
+            switch currentStep {
+            case .register:
+                createAccountForm
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .leading).combined(with: .opacity),
+                        removal: .move(edge: .leading).combined(with: .opacity)
+                    ))
+            case .verifyOTP:
+                verifyOTPPage
+                    .transition(.asymmetric(
+                        insertion: .move(edge: .trailing).combined(with: .opacity),
+                        removal: .move(edge: .trailing).combined(with: .opacity)
+                    ))
             }
-            
-            createAccountForm
         }
-        .navigationTitle("Sign up")
+        .navigationTitle(currentStep == .register ? "Sign up" : "")
         .navigationBarTitleDisplayMode(.inline)
+        .animation(.spring(response: 0.38, dampingFraction: 0.84), value: currentStep)
     }
     
-    // MARK: - Step 1: Form View
+    // MARK: - Step 1: Register Form
     private var createAccountForm: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 24) {
@@ -135,7 +120,108 @@ struct RegisterView: View {
         }
     }
     
-    // MARK: - Helper Views
+    // MARK: - Step 2: Verify OTP View
+    private var verifyOTPPage: some View {
+        VStack(spacing: 0) {
+            // Top Navigation Bar
+            HStack {
+                Button(action: {
+                    withAnimation {
+                        currentStep = .register
+                    }
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            
+            Spacer()
+            
+            VStack(spacing: 20) {
+                Image(systemName: "envelope.badge")
+                    .font(.system(size: 48))
+                    .foregroundColor(.white)
+                
+                Text("Enter Verification Code")
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.white)
+                
+                VStack(spacing: 4) {
+                    Text("We've sent a 4-digit OTP code to:")
+                        .font(.system(size: 14))
+                        .foregroundColor(.gray)
+                    
+                    Text(email)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                }
+                .padding(.bottom, 8)
+                
+                // OTP Input Cards
+                ZStack {
+                    TextField("", text: $otpText)
+                        .keyboardType(.numberPad)
+                        .textContentType(.oneTimeCode)
+                        .focused($isOTPFocused)
+                        .accentColor(.clear)
+                        .foregroundColor(.clear)
+                        .opacity(0.01)
+                        .onChange(of: otpText) { newValue in
+                            handleOTPChange(newValue)
+                        }
+                    
+                    HStack(spacing: 12) {
+                        ForEach(0..<otpLength, id: \.self) { index in
+                            let digit = getDigit(at: index)
+                            let isCurrentFocus = isOTPFocused && (index == otpText.count || (index == otpLength - 1 && otpText.count == otpLength))
+                            
+                            Text(digit)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundColor(.white)
+                                .frame(width: 56, height: 56)
+                                .background(Color.clear)
+                                .cornerRadius(12)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .stroke(isCurrentFocus ? Color.white : inputBorderColor, lineWidth: 1.5)
+                                )
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    isOTPFocused = true
+                }
+                .padding(.horizontal, 24)
+                
+                Button(action: {
+                    otpText = ""
+                    isOTPFocused = true
+                    resendOTP()
+                }) {
+                    Text(authManager.isLoading ? "Processing..." : "Resend OTP Code")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(authManager.isLoading ? .white.opacity(0.6) : .gray)
+                }
+                .disabled(authManager.isLoading)
+                .padding(.top, 12)
+            }
+            
+            Spacer()
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                isOTPFocused = true
+            }
+        }
+    }
+    
+    // MARK: - Input Field Helpers
     private func customInputField(title: String, text: Binding<String>, field: Field, keyboardType: UIKeyboardType = .default) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             if !text.wrappedValue.isEmpty {
@@ -184,15 +270,10 @@ struct RegisterView: View {
             
             Button(action: { isPasswordVisible.toggle() }) {
                 AsyncImage(url: isPasswordVisible ? eyeSlashIconURL : eyeIconURL) { image in
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 20, height: 20)
-                        .foregroundColor(.gray)
+                    image.resizable().scaledToFit().frame(width: 20, height: 20).foregroundColor(.gray)
                 } placeholder: {
                     Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray.opacity(0.7))
+                        .font(.system(size: 14)).foregroundColor(.gray.opacity(0.7))
                 }
             }
         }
@@ -229,15 +310,10 @@ struct RegisterView: View {
             
             Button(action: { isConfirmPasswordVisible.toggle() }) {
                 AsyncImage(url: isConfirmPasswordVisible ? eyeSlashIconURL : eyeIconURL) { image in
-                    image
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 20, height: 20)
-                        .foregroundColor(.gray)
+                    image.resizable().scaledToFit().frame(width: 20, height: 20).foregroundColor(.gray)
                 } placeholder: {
                     Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(.gray.opacity(0.7))
+                        .font(.system(size: 14)).foregroundColor(.gray.opacity(0.7))
                 }
             }
         }
@@ -252,7 +328,7 @@ struct RegisterView: View {
         )
     }
     
-    // MARK: - Validation & Actions
+    // MARK: - Logic & Actions
     private var isFormIncomplete: Bool {
         fullName.isEmpty || email.isEmpty || username.isEmpty || password.isEmpty || confirmPassword.isEmpty
     }
@@ -279,27 +355,53 @@ struct RegisterView: View {
         }
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
-            // 🟢 บังคับประมวลผลบน Main Thread และรีเซ็ต isLoading
-            DispatchQueue.main.async {
-                authManager.isLoading = false
-                if success {
-                    withAnimation {
-                        self.navigateToOTP = true
-                    }
+            if success {
+                withAnimation {
+                    currentStep = .verifyOTP
                 }
             }
         }
     }
     
-    // 🟢 แยกการกดขอ Resend OTP แยกต่างหาก
     private func resendOTP() {
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { _ in }
+    }
+    
+    private func getDigit(at index: Int) -> String {
+        if index < otpText.count {
+            let start = otpText.index(otpText.startIndex, offsetBy: index)
+            return String(otpText[start])
+        }
+        return ""
+    }
+    
+    private func handleOTPChange(_ newValue: String) {
+        let filtered = newValue.filter { $0.isNumber }
+        if filtered.count > otpLength {
+            otpText = String(filtered.prefix(otpLength))
+        } else {
+            otpText = filtered
+        }
+        
+        if otpText.count == otpLength {
+            isOTPFocused = false
+            verifyOTP()
+        }
+    }
+    
+    private func verifyOTP() {
+        guard otpText.count == otpLength else { return }
+        
+        authManager.verifyRegisterOTP(email: email, otp: otpText) { success in
+            if !success {
+                otpText = ""
+                isOTPFocused = true
+            }
+        }
     }
 }
 
 #Preview {
-    NavigationStack {
-        RegisterView()
-            .environmentObject(AuthManager())
-    }
+    RegisterView()
+        .environmentObject(AuthManager())
 }
