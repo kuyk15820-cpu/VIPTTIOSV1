@@ -58,7 +58,7 @@ struct RegisterView: View {
         ZStack {
             backgroundColor.ignoresSafeArea()
             
-            // 🟢 NavigationLink แบบซ่อนสำหรับ Trigger การย้ายหน้า (แก้ปัญหาติดค้างหน้า Register)
+            // 🟢 NavigationLink แบบซ่อนสำหรับ Trigger การย้ายหน้า
             NavigationLink(
                 destination: VerifyOTPView(
                     email: email,
@@ -279,13 +279,19 @@ struct RegisterView: View {
         }
         
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { success in
-            if success {
-                self.navigateToOTP = true
+            // 🟢 บังคับประมวลผลบน Main Thread และรีเซ็ต isLoading
+            DispatchQueue.main.async {
+                authManager.isLoading = false
+                if success {
+                    withAnimation {
+                        self.navigateToOTP = true
+                    }
+                }
             }
         }
     }
     
-    // 🟢 แยกการกดขอ Resend OTP แยกต่างหาก ไม่เรียก validateAndRegister() ซ้ำ
+    // 🟢 แยกการกดขอ Resend OTP แยกต่างหาก
     private func resendOTP() {
         authManager.requestRegisterOTP(fullName: fullName, username: username, email: email, password: password) { _ in }
     }
