@@ -39,7 +39,7 @@ struct BannedView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     // ประเภทการแบน
                     HStack {
-                        Label("ประเภทการระงับ", systemName: "shield.exclamationmark")
+                        Label("ประเภทการระงับ", systemImage: "shield.exclamationmark")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                         Spacer()
@@ -53,7 +53,7 @@ struct BannedView: View {
                     if let banUntil = banInfo.banUntil, banInfo.type == "temporary" {
                         Divider()
                         HStack {
-                            Label("สิ้นสุดการระงับ", systemName: "clock.arrow.circlepath")
+                            Label("สิ้นสุดการระงับ", systemImage: "clock.arrow.circlepath")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             Spacer()
@@ -68,7 +68,7 @@ struct BannedView: View {
                     if let reason = banInfo.reason, !reason.isEmpty {
                         Divider()
                         VStack(alignment: .leading, spacing: 6) {
-                            Label("เหตุผล", systemName: "info.circle")
+                            Label("เหตุผล", systemImage: "info.circle")
                                 .font(.subheadline)
                                 .foregroundColor(.secondary)
                             
