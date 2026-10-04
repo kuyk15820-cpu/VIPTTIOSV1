@@ -21,7 +21,7 @@ struct RootView: View {
             }
             // 🟢 4. แสดงหน้าหลักเมื่อยืนยันตัวตนสำเร็จ
             else if authManager.isAuthenticated {
-                MainContentView()
+                TargetGameView()
             }
             // 🟡 5. แสดงหน้าลงทะเบียน/เข้าสู่ระบบ (กรณีเป็นอุปกรณ์ใหม่ยังไม่มีข้อมูล)
             else {
