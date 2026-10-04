@@ -8,6 +8,9 @@ struct RootView: View {
             if authManager.isBanned {
                 // 🔴 แสดงหน้าถูกแบนหากอุปกรณ์หรือบัญชีถูกระงับ
                 BannedView()
+            } else if authManager.isAccountDeleted {
+                // 🚫 แสดงหน้าแจ้งเตือนบัญชีถูกลบ
+                AccountDeletedView()
             } else if authManager.isAuthenticated {
                 // 🟢 แสดงหน้าหลักเมื่อยืนยันตัวตนสำเร็จ
                 MainContentView()
