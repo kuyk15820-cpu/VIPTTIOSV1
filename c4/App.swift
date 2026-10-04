@@ -62,7 +62,7 @@ struct ThreeOneOSFiveApp: App {
                     .zIndex(998)
                 }
 
-                // 3. หน้า Splash Screen (แสดงผลค้างไว้จนกว่าจะเช็คเวอร์ชันและโหลดข้อมูลล่วงหน้าสำเร็จ)
+                // 3. หน้า Splash Screen (แสดงผลค้างไว้จนกว่าจะเช็คระบบ Auth, เวอร์ชัน และโหลดข้อมูลล่วงหน้าสำเร็จ)
                 if isCheckingUpdate {
                     AppSplashScreenView()
                         .transition(.opacity)
@@ -154,7 +154,7 @@ struct ThreeOneOSFiveApp: App {
         self.pusher = pusherClient
     }
 
-    // MARK: - Network Monitoring Logic (ปรับแก้เพื่อความปลอดภัย)
+    // MARK: - Network Monitoring Logic
     private func startNetworkMonitoring() {
         networkMonitor.pathUpdateHandler = { path in
             guard path.status == .satisfied else { return }
@@ -176,41 +176,44 @@ struct ThreeOneOSFiveApp: App {
         networkMonitor.start(queue: monitorQueue)
     }
 
-    // MARK: - Helper Function เช็คเวอร์ชันพร้อมโหลดข้อมูล Target Games & Patches ล่วงหน้าก่อนปิด Splash Screen
+    // MARK: - Helper Function เช็คเวอร์ชันพร้อมโหลดข้อมูล Auth, Target Games & Patches ล่วงหน้าก่อนปิด Splash Screen
     private func performUpdateCheck() {
         let startTime = Date()
         
-        // 🟢 1. Pre-fetch โหลดรายการเกม และรายการ Patch Catalog ล่วงหน้าเบื้องหลังผ่าน Singleton โดยตรง (ไม่แสดง HUD)
-        Task {
-            await TargetGameManager.shared.fetchTargetGames(showHUD: false)
-            await QuickApplyManager.shared.fetchCatalog(force: true, showHUD: false)
-        }
-        
-        // 🟢 2. เช็คเวอร์ชันแอปควบคู่กันไป
-        AppUpdateCheckerManager.shared.checkVersion { needsUpdate, downloadUrl, releaseNotes, serverVersion in
-            Task { @MainActor in
-                defer {
-                    // ปลดล็อกให้สั่งเช็คเน็ตใหม่ได้ในครั้งต่อไป
-                    self.isNetworkCheckingInProgress = false
-                }
+        Task { @MainActor in
+            // 🟢 1. รอเช็ค Auth สถานะผู้ใช้จนกว่าจะเสร็จสิ้นจริงๆ แบบ Native async/await
+            await AuthManager.shared.checkAuthStatus()
+            
+            // 🟢 2. ถ้าเป็นผู้ใช้ปกติ (Authenticated) ค่อยสั่งโหลดรายการเกมและแพตช์ล่วงหน้า
+            if AuthManager.shared.isAuthenticated {
+                await TargetGameManager.shared.fetchTargetGames(showHUD: false)
+                await QuickApplyManager.shared.fetchCatalog(force: true, showHUD: false)
+            }
+            
+            // 🟢 3. เช็คเวอร์ชันแอปควบคู่กันไป
+            AppUpdateCheckerManager.shared.checkVersion { needsUpdate, downloadUrl, releaseNotes, serverVersion in
+                Task { @MainActor in
+                    defer {
+                        // ปลดล็อกให้สั่งเช็คเน็ตใหม่ได้ในครั้งต่อไป
+                        self.isNetworkCheckingInProgress = false
+                    }
 
-                if serverVersion.isEmpty && !needsUpdate && downloadUrl == nil {
-                    return 
-                }
+                    if serverVersion.isEmpty && !needsUpdate && downloadUrl == nil {
+                        return 
+                    }
 
-                let elapsedTime = Date().timeIntervalSince(startTime)
-                let minDuration: TimeInterval = minDurationTimeInterval
-                
-                if elapsedTime < minDuration {
-                    let remainingTime = UInt64((minDuration - elapsedTime) * 1_000_000_000)
-                    try? await Task.sleep(nanoseconds: remainingTime)
-                }
-                
-                // 🟢 ไม่ใส่ networkMonitor.cancel() เพื่อให้ Monitor ยังทำงานต่อเวลามีการปิด/เปิดเน็ตในอนาคต
-                
-                // ปิด Splash Screen เพื่อเปิดเข้าหน้าแอปเมื่อข้อมูลพร้อมใช้งาน
-                withAnimation(.easeOut(duration: 0.3)) {
-                    self.isCheckingUpdate = false
+                    let elapsedTime = Date().timeIntervalSince(startTime)
+                    let minDuration: TimeInterval = self.minDurationTimeInterval
+                    
+                    if elapsedTime < minDuration {
+                        let remainingTime = UInt64((minDuration - elapsedTime) * 1_000_000_000)
+                        try? await Task.sleep(nanoseconds: remainingTime)
+                    }
+                    
+                    // 🟢 ปิด Splash Screen เพื่อแสดงหน้าจอปลายทางจริงเมื่อข้อมูลทุกอย่างพร้อมแล้ว
+                    withAnimation(.easeOut(duration: 0.3)) {
+                        self.isCheckingUpdate = false
+                    }
                 }
             }
         }
