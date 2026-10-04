@@ -68,7 +68,7 @@ class TargetGameManager: ObservableObject {
         request.timeoutInterval = 15.0
         request.setValue(SecretKeys.userAgentValue, forHTTPHeaderField: SecretKeys.userAgentHeader)
         
-        // 🔒 🔒 ยืนยันตัวตน: แนบ Bearer Token ไปใน Authorization Header ทุกครั้ง
+        // 🔒 ยืนยันตัวตน: แนบ Bearer Token ไปใน Authorization Header ทุกครั้ง
         if let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -82,12 +82,11 @@ class TargetGameManager: ObservableObject {
             if let error = error {
                 print("⚠️ [Fetch Games Error / SSL Blocked]: \(error.localizedDescription)")
             } else if let httpResponse = response as? HTTPURLResponse {
-                // 🔒 กรณี Server แจ้งว่าไม่ได้ยืนยันตัวตน หรือ Token หมดอายุ / ติดแบน (HTTP 401)
+                // 🔒 กรณี Token หมดอายุ / บัญชีถูกระงับสิทธิ์ (HTTP 401)
                 if httpResponse.statusCode == 401 {
                     print("🔴 [Unauthorized Access]: Token invalid or user banned.")
-                    Task { @MainActor in
-                        AuthManager.shared.checkAuthStatus()
-                    }
+                    // 🟢 ไม่สั่ง checkAuthStatus() กลางคันขณะใช้งาน
+                    // เพื่อให้ตรวจเช็คสิทธิ์เฉพาะรอบแรกตอนปิดแล้วเปิดเข้าแอปใหม่เท่านั้น
                 } else if (200...299).contains(httpResponse.statusCode), let data = data {
                     if let decodedGames = try? JSONDecoder().decode([TargetGameApp].self, from: data) {
                         // กรองเอาเฉพาะเกมที่ active != false
