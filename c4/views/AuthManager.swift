@@ -86,17 +86,73 @@ class AuthManager: ObservableObject {
         )
     }
 
-    // MARK: - 1. Check Auth Status
+    // MARK: - 1. Check Auth Status (หรือ Auto Login ผ่าน UDID กรณีลบแอป)
     func checkAuthStatus() {
-        guard let savedToken = token, !savedToken.isEmpty else {
-            self.isAuthenticated = false
-            return
-        }
+        let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
-        guard let url = URL(string: "\(baseURL)/check_auth.php") else { return }
+        // 🟢 กรณีที่ 1: มี Token ค้างอยู่ใน UserDefaults
+        if let savedToken = token, !savedToken.isEmpty {
+            guard let url = URL(string: "\(baseURL)/check_auth.php") else { return }
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
+
+            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
+                Task { @MainActor in
+                    guard let data = data, error == nil else {
+                        self?.isAuthenticated = false
+                        return
+                    }
+
+                    do {
+                        let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
+                        if decoded.status, let user = decoded.data {
+                            self?.currentUser = user
+                            self?.isAuthenticated = true
+                            self?.isBanned = false
+                        } else {
+                            // ดักจับการแบน
+                            let bannedCodes = [
+                                "DEVICE_PERMANENTLY_BANNED",
+                                "DEVICE_TEMPORARILY_BANNED",
+                                "ACCOUNT_PERMANENTLY_BANNED",
+                                "ACCOUNT_TEMPORARILY_BANNED"
+                            ]
+                            if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
+                                self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                            } else {
+                                self?.logoutLocal()
+                            }
+                        }
+                    } catch {
+                        self?.logoutLocal()
+                    }
+                }
+            }.resume()
+        } 
+        // 🟢 กรณีที่ 2: ไม่มี Token (เช่น ลบแอปแล้วโหลดใหม่) -> Auto Login ด้วย UDID ทันที
+        else if !currentUDID.isEmpty {
+            self.autoLoginWithUDID(udid: currentUDID)
+        } else {
+            self.isAuthenticated = false
+        }
+    }
+
+    // 🟢 ฟังก์ชัน Auto Login ผ่าน UDID เมื่อเปิดแอปครั้งแรกหลังติดตั้งใหม่
+    private func autoLoginWithUDID(udid: String) {
+        guard let url = URL(string: "\(baseURL)/register.php") else { return }
+        
+        let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"udid\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(udid)\r\n".data(using: .utf8)!)
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
 
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             Task { @MainActor in
@@ -106,13 +162,16 @@ class AuthManager: ObservableObject {
                 }
 
                 do {
-                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
-                    if decoded.status, let user = decoded.data {
-                        self?.currentUser = user
+                    let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
+                    
+                    // 🟢 ถ้าพบว่าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าทันที
+                    if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
+                        self?.token = responseData.token
+                        self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
                         self?.isBanned = false
                     } else {
-                        // 🟢 ดักจับการแบนทั้ง 4 รูปแบบ (ทั้ง User และ Device)
+                        // 🔴 ถ้าเป็นอุปกรณ์ที่ถูกแบน
                         let bannedCodes = [
                             "DEVICE_PERMANENTLY_BANNED",
                             "DEVICE_TEMPORARILY_BANNED",
@@ -122,17 +181,18 @@ class AuthManager: ObservableObject {
                         if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                         } else {
-                            self?.logoutLocal()
+                            // ถ้าเป็น UDID ใหม่ที่ยังไม่เคยสมัคร -> ไปหน้า Register
+                            self?.isAuthenticated = false
                         }
                     }
                 } catch {
-                    self?.logoutLocal()
+                    self?.isAuthenticated = false
                 }
             }
         }.resume()
     }
 
-    // MARK: - 2. Register / Auto Login (Multipart Form Data)
+    // MARK: - 2. Register / Manual Submit (Multipart Form Data)
     func register(fullName: String, udid: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
         clearMessages()
 
@@ -147,7 +207,6 @@ class AuthManager: ObservableObject {
             return
         }
 
-        // ปรับ Endpoint เป็น register.php ตามที่ใช้งานจริง
         guard let url = URL(string: "\(baseURL)/register.php") else { return }
 
         isLoading = true
@@ -201,13 +260,11 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
 
-                        // 🟢 แยกแจ้งเตือนระหว่าง ผู้ใช้เดิม (Auto Login) กับ ผู้ใช้ใหม่
                         let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
                         self?.successMessage = msg
                         self?.showSuccessNotification(message: msg)
                         completion(true)
                     } else {
-                        // 🟢 ดักจับการถูกแบนทุกประเภท
                         let bannedCodes = [
                             "DEVICE_PERMANENTLY_BANNED",
                             "DEVICE_TEMPORARILY_BANNED",
