@@ -2,40 +2,32 @@ import Foundation
 import UIKit
 import Combine
 
-// MARK: - AuthManager Helper Models (ใช้เฉพาะในกระบวนการ Auth)
+// MARK: - AuthManager Helper Models
 struct UserDataResponse: Codable {
-    let id: Int
+    let userId: Int
     let fullName: String
-    let username: String
-    let email: String
-    let role: String
-    let createdAt: String?
-    let firstLoginAt: String?
-    let lastLoginAt: String?
-    let sessionToken: String
+    let avatarUrl: String?
+    let deviceId: Int?
+    let udid: String?
+    let token: String
 
     enum CodingKeys: String, CodingKey {
-        case id
+        case userId = "user_id"
         case fullName = "full_name"
-        case username
-        case email
-        case role
-        case createdAt = "created_at"
-        case firstLoginAt = "first_login_at"
-        case lastLoginAt = "last_login_at"
-        case sessionToken = "session_token"
+        case avatarUrl = "avatar_url"
+        case deviceId = "device_id"
+        case udid
+        case token
     }
 
     func toUser() -> User {
         return User(
-            id: id,
+            id: userId,
             fullName: fullName,
-            username: username,
-            email: email,
-            role: role,
-            createdAt: createdAt,
-            firstLoginAt: firstLoginAt,
-            lastLoginAt: lastLoginAt
+            avatarUrl: avatarUrl,
+            deviceId: deviceId,
+            udid: udid,
+            token: token
         )
     }
 }
@@ -120,7 +112,7 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
                     } else {
-                        if decoded.errorCode == "ACCOUNT_PERMANENTLY_BANNED" || decoded.errorCode == "ACCOUNT_TEMPORARILY_BANNED" {
+                        if decoded.errorCode == "DEVICE_PERMANENTLY_BANNED" || decoded.errorCode == "DEVICE_TEMPORARILY_BANNED" {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                         } else {
                             self?.logoutLocal()
@@ -133,202 +125,68 @@ class AuthManager: ObservableObject {
         }.resume()
     }
 
-    // MARK: - 2. Login
-    func login(userLogin: String, userPassword: String) {
-        clearMessages()
-
-        let trimmedLogin = userLogin.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedPassword = userPassword.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedLogin.isEmpty, !trimmedPassword.isEmpty else {
-            let msg = AuthMessages.Warning.emptyCredentials
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            return
-        }
-
-        guard let url = URL(string: "\(baseURL)/login.php") else { return }
-        
-        isLoading = true
-
-        let body: [String: String] = [
-            "user_login": trimmedLogin,
-            "user_password": trimmedPassword
-        ]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                self?.isLoading = false
-                guard let data = data, error == nil else {
-                    let msg = AuthMessages.Error.networkFailed
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    return
-                }
-
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
-                    if decoded.status, let responseData = decoded.data {
-                        self?.token = responseData.sessionToken
-                        self?.currentUser = responseData.toUser()
-                        self?.isAuthenticated = true
-                        self?.isBanned = false
-                        
-                        let msg = AuthMessages.Success.login
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                    } else {
-                        if decoded.errorCode == "ACCOUNT_PERMANENTLY_BANNED" || decoded.errorCode == "ACCOUNT_TEMPORARILY_BANNED" {
-                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
-                        } else {
-                            let msg = AuthMessages.Error.from(errorCode: decoded.errorCode, serverMessage: decoded.message)
-                            self?.errorMessage = msg
-                            self?.showErrorNotification(message: msg)
-                        }
-                    }
-                } catch {
-                    let msg = AuthMessages.Error.unknown
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                }
-            }
-        }.resume()
-    }
-
-    // MARK: - 3. Register Request
-    func requestRegisterOTP(fullName: String, username: String, email: String, password: String, completion: @escaping (Bool) -> Void) {
+    // MARK: - 2. Register Account (Multipart Form Data)
+    func register(fullName: String, udid: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
         clearMessages()
 
         let trimmedFullName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUDID = udid.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        if trimmedFullName.isEmpty {
-            let msg = AuthMessages.Warning.emptyFullName
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-        if trimmedUsername.isEmpty {
-            let msg = AuthMessages.Warning.emptyUsername
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-        if trimmedEmail.isEmpty {
-            let msg = AuthMessages.Warning.emptyEmail
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-        if password.count < 8 {
-            let msg = AuthMessages.Warning.passwordTooShort
+        guard !trimmedFullName.isEmpty else {
+            let msg = "กรุณากรอกชื่อ-นามสกุล"
             errorMessage = msg
             showErrorNotification(message: msg)
             completion(false)
             return
         }
 
-        guard let url = URL(string: "\(baseURL)/register_request.php") else { return }
+        guard !trimmedUDID.isEmpty else {
+            let msg = "ไม่พบรหัส UDID ของเครื่อง"
+            errorMessage = msg
+            showErrorNotification(message: msg)
+            completion(false)
+            return
+        }
+
+        guard let url = URL(string: "\(baseURL)/register.php") else { return }
 
         isLoading = true
 
-        let body: [String: String] = [
-            "full_name": trimmedFullName,
-            "username": trimmedUsername,
-            "email": trimmedEmail,
-            "password": password
-        ]
-
+        let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        // สร้าง Multipart Data Body
+        var body = Data()
+        
+        // 1. full_name
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"full_name\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(trimmedFullName)\r\n".data(using: .utf8)!)
+
+        // 2. udid
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"udid\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(trimmedUDID)\r\n".data(using: .utf8)!)
+
+        // 3. avatar (ถ้ามีรูปภาพ)
+        if let avatarData = avatarImageData {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.jpg\"\r\n".data(using: .utf8)!)
+            body.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+            body.append(avatarData)
+            body.append("\r\n".data(using: .utf8)!)
+        }
+
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
 
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             Task { @MainActor in
                 self?.isLoading = false
                 guard let data = data, error == nil else {
-                    let msg = AuthMessages.Error.networkFailed
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                    return
-                }
-
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
-                    if decoded.status {
-                        let msg = AuthMessages.Success.otpSent
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                        completion(true)
-                    } else {
-                        let msg = AuthMessages.Error.from(errorCode: decoded.errorCode, serverMessage: decoded.message)
-                        self?.errorMessage = msg
-                        self?.showErrorNotification(message: msg)
-                        completion(false)
-                    }
-                } catch {
-                    let msg = AuthMessages.Error.unknown
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                }
-            }
-        }.resume()
-    }
-
-    // MARK: - 4. Register Verify
-    func verifyRegisterOTP(email: String, otp: String, completion: @escaping (Bool) -> Void) {
-        clearMessages()
-
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedOTP = otp.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedEmail.isEmpty else {
-            let msg = AuthMessages.Warning.emptyEmail
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard trimmedOTP.count == 4 else {
-            let msg = AuthMessages.Warning.invalidOTPFormat
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard let url = URL(string: "\(baseURL)/register_verify.php") else { return }
-
-        isLoading = true
-
-        let body: [String: String] = [
-            "email": trimmedEmail,
-            "otp": trimmedOTP
-        ]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                self?.isLoading = false
-                guard let data = data, error == nil else {
-                    let msg = AuthMessages.Error.networkFailed
+                    let msg = "การเชื่อมต่อเครือข่ายล้มเหลว"
                     self?.errorMessage = msg
                     self?.showErrorNotification(message: msg)
                     completion(false)
@@ -338,22 +196,28 @@ class AuthManager: ObservableObject {
                 do {
                     let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
                     if decoded.status, let responseData = decoded.data {
-                        self?.token = responseData.sessionToken
+                        self?.token = responseData.token
                         self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
-                        
-                        let msg = AuthMessages.Success.registrationCompleted
+                        self?.isBanned = false
+
+                        let msg = "ลงทะเบียนเรียบร้อยแล้ว"
                         self?.successMessage = msg
                         self?.showSuccessNotification(message: msg)
                         completion(true)
                     } else {
-                        let msg = AuthMessages.Error.from(errorCode: decoded.errorCode, serverMessage: decoded.message)
-                        self?.errorMessage = msg
-                        self?.showErrorNotification(message: msg)
+                        // เช็คกรณีถูกแบน
+                        if decoded.errorCode == "DEVICE_PERMANENTLY_BANNED" || decoded.errorCode == "DEVICE_TEMPORARILY_BANNED" {
+                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                        } else {
+                            let msg = decoded.message
+                            self?.errorMessage = msg
+                            self?.showErrorNotification(message: msg)
+                        }
                         completion(false)
                     }
                 } catch {
-                    let msg = AuthMessages.Error.unknown
+                    let msg = "เกิดข้อผิดพลาดในการประมวลผลข้อมูล"
                     self?.errorMessage = msg
                     self?.showErrorNotification(message: msg)
                     completion(false)
@@ -362,146 +226,7 @@ class AuthManager: ObservableObject {
         }.resume()
     }
 
-    // MARK: - 5. Password Reset Request
-    func requestPasswordReset(email: String, completion: @escaping (Bool) -> Void) {
-        clearMessages()
-
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedEmail.isEmpty else {
-            let msg = AuthMessages.Warning.emptyEmail
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard let url = URL(string: "\(baseURL)/request_reset.php") else { return }
-
-        isLoading = true
-
-        let body: [String: String] = ["email": trimmedEmail]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                self?.isLoading = false
-                guard let data = data, error == nil else {
-                    let msg = AuthMessages.Error.networkFailed
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                    return
-                }
-
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
-                    if decoded.status {
-                        let msg = AuthMessages.Success.resetRequestSent
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                        completion(true)
-                    } else {
-                        let msg = AuthMessages.Error.from(errorCode: decoded.errorCode, serverMessage: decoded.message)
-                        self?.errorMessage = msg
-                        self?.showErrorNotification(message: msg)
-                        completion(false)
-                    }
-                } catch {
-                    let msg = AuthMessages.Error.unknown
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                }
-            }
-        }.resume()
-    }
-
-    // MARK: - 6. Reset Password
-    func resetPassword(email: String, otp: String, newPassword: String, completion: @escaping (Bool) -> Void) {
-        clearMessages()
-
-        let trimmedEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedOTP = otp.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedEmail.isEmpty else {
-            let msg = AuthMessages.Warning.emptyEmail
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard trimmedOTP.count == 4 else {
-            let msg = AuthMessages.Warning.invalidOTPFormat
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard newPassword.count >= 8 else {
-            let msg = AuthMessages.Warning.passwordTooShort
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
-
-        guard let url = URL(string: "\(baseURL)/reset_password.php") else { return }
-
-        isLoading = true
-
-        let body: [String: String] = [
-            "email": trimmedEmail,
-            "otp": trimmedOTP,
-            "new_password": newPassword
-        ]
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                self?.isLoading = false
-                guard let data = data, error == nil else {
-                    let msg = AuthMessages.Error.networkFailed
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                    return
-                }
-
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
-                    if decoded.status {
-                        let msg = AuthMessages.Success.passwordUpdated
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                        completion(true)
-                    } else {
-                        let msg = AuthMessages.Error.from(errorCode: decoded.errorCode, serverMessage: decoded.message)
-                        self?.errorMessage = msg
-                        self?.showErrorNotification(message: msg)
-                        completion(false)
-                    }
-                } catch {
-                    let msg = AuthMessages.Error.unknown
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                }
-            }
-        }.resume()
-    }
-
-    // MARK: - 7. Logout
+    // MARK: - 3. Logout
     func logout() {
         clearMessages()
 
@@ -517,7 +242,7 @@ class AuthManager: ObservableObject {
         URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
             Task { @MainActor in
                 self?.logoutLocal()
-                let msg = AuthMessages.Success.logout
+                let msg = "ออกจากระบบเรียบร้อยแล้ว"
                 self?.successMessage = msg
                 self?.showSuccessNotification(message: msg)
             }
@@ -535,7 +260,7 @@ class AuthManager: ObservableObject {
         self.isBanned = true
         self.banInfo = banInfo
         
-        let msg = AuthMessages.Error.from(errorCode: errorCode, serverMessage: message)
+        let msg = message ?? "อุปกรณ์ของคุณถูกระงับการใช้งาน"
         self.errorMessage = msg
         self.showErrorNotification(message: msg)
     }
