@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Register Response Data Model
-/// รองรับ Object Data ที่ส่งกลับมาจาก register.php
+/// รองรับ Object Data ที่ส่งกลับมาจาก register.php / check_auth.php
 struct User: Codable, Identifiable {
     let id: Int
     let fullName: String
@@ -24,6 +24,7 @@ struct User: Codable, Identifiable {
 struct APIResponse<T: Codable>: Codable {
     let status: Bool
     let message: String
+    let isExistingUser: Bool?        // 🟢 เพิ่มรองรับการตรวจสอบว่าเป็นการ Auto Login ผู้ใช้เดิมหรือไม่
     let data: T?
     let errors: [String: String]?
     let errorCode: String?
@@ -32,6 +33,7 @@ struct APIResponse<T: Codable>: Codable {
     enum CodingKeys: String, CodingKey {
         case status
         case message
+        case isExistingUser = "is_existing_user" // 🟢 แมปชื่อ key ให้ตรงกับ JSON จาก PHP
         case data
         case errors
         case errorCode = "error_code"
