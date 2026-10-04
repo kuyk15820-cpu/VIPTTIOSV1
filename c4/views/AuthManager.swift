@@ -44,7 +44,7 @@ class AuthManager: ObservableObject {
     @Published var successMessage: String? = nil
     
     // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (ป้องกัน UI เด้งไป RegisterView ก่อน API ตอบกลับ)
-    @Published var isCheckingAuth: Bool = true
+    @Published var isCheckingAuth: Bool = false
     
     // ข้อมูลกรณีถูกแบน
     @Published var isBanned: Bool = false
@@ -94,6 +94,9 @@ class AuthManager: ObservableObject {
 
     // MARK: - 1. Check Auth Status (หรือ Auto Login ผ่าน UDID กรณีลบแอป)
     func checkAuthStatus() {
+        // 🟢 ป้องกันการยิง API ซ้ำซ้อนหากกำลังตรวจสอบอยู่แล้ว
+        guard !isCheckingAuth else { return }
+        
         isCheckingAuth = true
         let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
@@ -111,6 +114,7 @@ class AuthManager: ObservableObject {
                 Task { @MainActor in
                     guard let data = data, error == nil else {
                         // ถ้าเกิด Network Error กับ Token ให้ลอง fallback เช็คผ่าน UDID
+                        self?.isCheckingAuth = false
                         self?.autoLoginWithUDID(udid: currentUDID)
                         return
                     }
@@ -135,15 +139,18 @@ class AuthManager: ObservableObject {
                                 "ACCOUNT_TEMPORARILY_BANNED"
                             ]
                             if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                                self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                                // 🟢 ไม่แสดง FT Notification เพราะมี BannedView คุมเต็มหน้าจอแล้ว
+                                self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
                             } else if decoded.errorCode == "ACCOUNT_DELETED" {
-                                self?.handleAccountDeleted(message: decoded.message)
+                                self?.handleAccountDeleted(message: decoded.message, showNotification: false)
                             } else {
-                                // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที (กรณีโดนแบนหรือลบชั่วคราว)
+                                // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที
+                                self?.isCheckingAuth = false
                                 self?.autoLoginWithUDID(udid: currentUDID)
                             }
                         }
                     } catch {
+                        self?.isCheckingAuth = false
                         self?.autoLoginWithUDID(udid: currentUDID)
                     }
                 }
@@ -151,6 +158,7 @@ class AuthManager: ObservableObject {
         } 
         // 🟢 กรณีที่ 2: ไม่มี Token -> Auto Login ผ่าน UDID ทันที
         else if !currentUDID.isEmpty {
+            self.isCheckingAuth = false
             self.autoLoginWithUDID(udid: currentUDID)
         } else {
             self.isAuthenticated = false
@@ -160,6 +168,9 @@ class AuthManager: ObservableObject {
 
     // 🟢 ฟังก์ชัน Auto Login ผ่าน UDID เมื่อเปิดแอปครั้งแรกหลังติดตั้งใหม่
     private func autoLoginWithUDID(udid: String) {
+        guard !isCheckingAuth else { return }
+        isCheckingAuth = true
+
         guard let url = URL(string: "\(baseURL)/register.php") else {
             self.isCheckingAuth = false
             return
@@ -198,11 +209,11 @@ class AuthManager: ObservableObject {
 
                     // 🔴 1. เช็คว่าติดแบนหรือไม่
                     if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                        self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                        self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
                     } 
                     // 🚫 2. เช็คว่าบัญชีถูกลบไปแล้วหรือไม่ -> สลับไปหน้า AccountDeletedView
                     else if decoded.errorCode == "ACCOUNT_DELETED" {
-                        self?.handleAccountDeleted(message: decoded.message)
+                        self?.handleAccountDeleted(message: decoded.message, showNotification: false)
                     }
                     // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งานทันที
                     else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
@@ -212,10 +223,10 @@ class AuthManager: ObservableObject {
                         self?.isBanned = false
                         self?.isAccountDeleted = false
                         
-                        // 🟢 วิธีที่ 1: เมื่อ Auto Login สำเร็จและได้ Token ใหม่มาแล้ว สั่งดึงข้อมูลเกมทันที!
+                        // 🟢 เมื่อ Auto Login สำเร็จและได้ Token ใหม่มาแล้ว สั่งดึงข้อมูลเกมทันที!
                         TargetGameManager.shared.fetchTargetGames(showHUD: false)
                     } 
-                    // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
+                    // ⚪️️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
                     else {
                         self?.logoutLocal()
                     }
@@ -310,9 +321,10 @@ class AuthManager: ObservableObject {
                             "ACCOUNT_TEMPORARILY_BANNED"
                         ]
                         if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                            // กรณีสมัครเอง ให้เด้ง Notification เตือนสั้นๆ ด้วย
+                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: true)
                         } else if decoded.errorCode == "ACCOUNT_DELETED" {
-                            self?.handleAccountDeleted(message: decoded.message)
+                            self?.handleAccountDeleted(message: decoded.message, showNotification: true)
                         } else {
                             let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
                             self?.errorMessage = msg
@@ -361,7 +373,7 @@ class AuthManager: ObservableObject {
         isAccountDeleted = false
     }
 
-    private func handleBan(banInfo: BanInfo?, errorCode: String?, message: String?) {
+    private func handleBan(banInfo: BanInfo?, errorCode: String?, message: String?, showNotification: Bool = false) {
         logoutLocal()
         self.isBanned = true
         self.banInfo = banInfo
@@ -369,17 +381,23 @@ class AuthManager: ObservableObject {
         
         let msg = message ?? "บัญชีหรืออุปกรณ์ของคุณถูกระงับการใช้งาน"
         self.errorMessage = msg
-        self.showErrorNotification(message: msg)
+        
+        if showNotification {
+            self.showErrorNotification(message: msg)
+        }
     }
 
     // 🟢 ฟังก์ชันสำหรับจัดการเมื่อบัญชีถูกลบ
-    private func handleAccountDeleted(message: String?) {
+    private func handleAccountDeleted(message: String?, showNotification: Bool = false) {
         logoutLocal()
         self.isAccountDeleted = true
         self.isCheckingAuth = false
         
         let msg = message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถใช้งานหรือสมัครใหม่ได้"
         self.errorMessage = msg
-        self.showErrorNotification(message: msg)
+        
+        if showNotification {
+            self.showErrorNotification(message: msg)
+        }
     }
 }
