@@ -286,7 +286,7 @@ class AuthManager: ObservableObject {
                     } else if decoded.errorCode == "ACCOUNT_DELETED" {
                         self.handleAccountDeleted(message: decoded.message, showNotification: true)
                     } else {
-                        let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
+                        let msg = decoded.message
                         self.errorMessage = msg
                         self.showErrorNotification(message: msg)
                     }
