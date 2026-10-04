@@ -111,7 +111,7 @@ class AuthManager: ObservableObject {
                             self?.isAuthenticated = true
                             self?.isBanned = false
                         } else {
-                            // ดักจับการแบน
+                            // 🔴 ตรวจสอบรหัสการแบน
                             let bannedCodes = [
                                 "DEVICE_PERMANENTLY_BANNED",
                                 "DEVICE_TEMPORARILY_BANNED",
@@ -164,26 +164,36 @@ class AuthManager: ObservableObject {
                 do {
                     let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
                     
-                    // 🟢 ถ้าพบว่าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าทันที
-                    if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
+                    let bannedCodes = [
+                        "DEVICE_PERMANENTLY_BANNED",
+                        "DEVICE_TEMPORARILY_BANNED",
+                        "ACCOUNT_PERMANENTLY_BANNED",
+                        "ACCOUNT_TEMPORARILY_BANNED"
+                    ]
+
+                    // 🔴 1. เช็คก่อนเสมอว่าเครื่องหรือบัญชีติดแบนหรือไม่ (ถ้าติดแบน ให้ไป BannedView ทันที ไม่ค้างหน้า Register)
+                    if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
+                        self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                    } 
+                    // 🟢 2. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งานระบบทันที
+                    else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
                         self?.token = responseData.token
                         self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
                         self?.isBanned = false
-                    } else {
-                        // 🔴 ถ้าเป็นอุปกรณ์ที่ถูกแบน
-                        let bannedCodes = [
-                            "DEVICE_PERMANENTLY_BANNED",
-                            "DEVICE_TEMPORARILY_BANNED",
-                            "ACCOUNT_PERMANENTLY_BANNED",
-                            "ACCOUNT_TEMPORARILY_BANNED"
-                        ]
-                        if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
-                        } else {
-                            // ถ้าเป็น UDID ใหม่ที่ยังไม่เคยสมัคร -> ไปหน้า Register
-                            self?.isAuthenticated = false
-                        }
+                    } 
+                    // 🚫 3. ถ้าบัญชีเคยถูกลบไปแล้ว (ACCOUNT_DELETED)
+                    else if decoded.errorCode == "ACCOUNT_DELETED" {
+                        self?.isAuthenticated = false
+                        self?.isBanned = false
+                        let msg = decoded.message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถสร้างบัญชีใหม่ได้"
+                        self?.errorMessage = msg
+                        self?.showErrorNotification(message: msg)
+                    }
+                    // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ปล่อยไปหน้า RegisterView
+                    else {
+                        self?.isAuthenticated = false
+                        self?.isBanned = false
                     }
                 } catch {
                     self?.isAuthenticated = false
@@ -274,7 +284,7 @@ class AuthManager: ObservableObject {
                         if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                         } else {
-                            let msg = decoded.message
+                            let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
                             self?.errorMessage = msg
                             self?.showErrorNotification(message: msg)
                         }
