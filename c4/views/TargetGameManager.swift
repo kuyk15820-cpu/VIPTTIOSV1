@@ -80,14 +80,14 @@ class TargetGameManager: ObservableObject {
             var fetchedApps: [TargetGameApp] = self.targetApps
             
             if let error = error {
-                print("⚠️️ [Fetch Games Error / SSL Blocked]: \(error.localizedDescription)")
+                print("⚠ [Fetch Games Error / SSL Blocked]: \(error.localizedDescription)")
             } else if let httpResponse = response as? HTTPURLResponse {
                 // 🔒 กรณี Token หมดอายุ / บัญชีถูกระงับสิทธิ์ (HTTP 401)
                 if httpResponse.statusCode == 401 {
                     print("🔴 [Unauthorized Access]: Token invalid or user banned.")
                     // ⚡ สั่งยิงเช็ค Auth ทันทีเพื่อสลับหน้าไป BannedView / AccountDeletedView
                     Task { @MainActor in
-                        AuthManager.shared.checkAuthStatus()
+                        await AuthManager.shared.checkAuthStatus()
                     }
                 } else if (200...299).contains(httpResponse.statusCode), let data = data {
                     if let decodedGames = try? JSONDecoder().decode([TargetGameApp].self, from: data) {
