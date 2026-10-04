@@ -128,7 +128,7 @@ class AuthManager: ObservableObject {
                             self?.isAccountDeleted = false
                             self?.isCheckingAuth = false
                             
-                            // 🟢 Token สมบูรณ์: สั่งอัปเดตข้อมูลเกมล่วงหน้าทันที
+                            // 🟢 Token สมบูรณ์: สั่งอัปเดตข้อมูลเกมล่วงหน้าทันที (ไม่แสดง FT Notification เมื่อเข้าแอปปกติ)
                             TargetGameManager.shared.fetchTargetGames(showHUD: false)
                         } else {
                             // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
@@ -215,7 +215,7 @@ class AuthManager: ObservableObject {
                     else if decoded.errorCode == "ACCOUNT_DELETED" {
                         self?.handleAccountDeleted(message: decoded.message, showNotification: false)
                     }
-                    // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งานทันที
+                    // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งาน + เด้งแจ้งเตือน FT
                     else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
                         self?.token = responseData.token
                         self?.currentUser = responseData.toUser()
@@ -223,10 +223,15 @@ class AuthManager: ObservableObject {
                         self?.isBanned = false
                         self?.isAccountDeleted = false
                         
-                        // 🟢 เมื่อ Auto Login สำเร็จและได้ Token ใหม่มาแล้ว สั่งดึงข้อมูลเกมทันที!
+                        // 🌟 แสดง FT Notification ยินดีต้อนรับกลับ เฉพาะตอน Auto Login สำเร็จหลังติดตั้งใหม่เท่านั้น
+                        let msg = "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย"
+                        self?.successMessage = msg
+                        self?.showSuccessNotification(message: msg)
+                        
+                        // 🟢 เมื่อ Auto Login สำเร็จสั่งดึงข้อมูลเกมทันที!
                         TargetGameManager.shared.fetchTargetGames(showHUD: false)
                     } 
-                    // ⚪️️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
+                    // ⚪ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
                     else {
                         self?.logoutLocal()
                     }
