@@ -57,7 +57,9 @@ class AuthManager: ObservableObject {
     private let tokenKey = "user_session_token"
 
     init() {
-        checkAuthStatus()
+        Task { @MainActor in
+            await checkAuthStatus()
+        }
     }
 
     // MARK: - Token Management
@@ -93,88 +95,65 @@ class AuthManager: ObservableObject {
     }
 
     // MARK: - 1. Check Auth Status (หรือ Auto Login ผ่าน UDID กรณีลบแอป)
-    func checkAuthStatus() {
+    func checkAuthStatus() async {
         // 🟢 ป้องกันการยิง API ซ้ำซ้อนหากกำลังตรวจสอบอยู่แล้ว
         guard !isCheckingAuth else { return }
         
         isCheckingAuth = true
+        defer { isCheckingAuth = false } // การันตีว่าจะคืนค่าเป็น false เสมอเมื่อฟังก์ชันนี้ทำงานจบ
+        
         let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
         // 🟢 กรณีที่ 1: มี Token ค้างอยู่ใน UserDefaults
         if let savedToken = token, !savedToken.isEmpty {
-            guard let url = URL(string: "\(baseURL)/check_auth.php") else {
-                isCheckingAuth = false
-                return
-            }
+            guard let url = URL(string: "\(baseURL)/check_auth.php") else { return }
+            
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
 
-            URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-                Task { @MainActor in
-                    guard let data = data, error == nil else {
-                        // ถ้าเกิด Network Error กับ Token ให้ลอง fallback เช็คผ่าน UDID
-                        self?.isCheckingAuth = false
-                        self?.autoLoginWithUDID(udid: currentUDID)
-                        return
-                    }
-
-                    do {
-                        let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
-                        if decoded.status, let user = decoded.data {
-                            self?.currentUser = user
-                            self?.isAuthenticated = true
-                            self?.isBanned = false
-                            self?.isAccountDeleted = false
-                            self?.isCheckingAuth = false
-                            
-                            // 🟢 Token สมบูรณ์: สั่งอัปเดตข้อมูลเกมล่วงหน้าทันที (ไม่แสดง FT Notification เมื่อเข้าแอปปกติ)
-                            TargetGameManager.shared.fetchTargetGames(showHUD: false)
-                        } else {
-                            // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
-                            let bannedCodes = [
-                                "DEVICE_PERMANENTLY_BANNED",
-                                "DEVICE_TEMPORARILY_BANNED",
-                                "ACCOUNT_PERMANENTLY_BANNED",
-                                "ACCOUNT_TEMPORARILY_BANNED"
-                            ]
-                            if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                                // 🟢 ไม่แสดง FT Notification เพราะมี BannedView คุมเต็มหน้าจอแล้ว
-                                self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
-                            } else if decoded.errorCode == "ACCOUNT_DELETED" {
-                                self?.handleAccountDeleted(message: decoded.message, showNotification: false)
-                            } else {
-                                // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที
-                                self?.isCheckingAuth = false
-                                self?.autoLoginWithUDID(udid: currentUDID)
-                            }
-                        }
-                    } catch {
-                        self?.isCheckingAuth = false
-                        self?.autoLoginWithUDID(udid: currentUDID)
+            do {
+                let (data, _) = try await URLSession.shared.data(for: request)
+                let decoded = try JSONDecoder().decode(APIResponse<User>.self, from: data)
+                
+                if decoded.status, let user = decoded.data {
+                    self.currentUser = user
+                    self.isAuthenticated = true
+                    self.isBanned = false
+                    self.isAccountDeleted = false
+                } else {
+                    // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
+                    let bannedCodes = [
+                        "DEVICE_PERMANENTLY_BANNED",
+                        "DEVICE_TEMPORARILY_BANNED",
+                        "ACCOUNT_PERMANENTLY_BANNED",
+                        "ACCOUNT_TEMPORARILY_BANNED"
+                    ]
+                    if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
+                        self.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
+                    } else if decoded.errorCode == "ACCOUNT_DELETED" {
+                        self.handleAccountDeleted(message: decoded.message, showNotification: false)
+                    } else {
+                        // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที
+                        await self.autoLoginWithUDID(udid: currentUDID)
                     }
                 }
-            }.resume()
+            } catch {
+                // ถ้าเกิด Network Error ให้ลอง Fallback เช็คผ่าน UDID
+                await self.autoLoginWithUDID(udid: currentUDID)
+            }
         } 
         // 🟢 กรณีที่ 2: ไม่มี Token -> Auto Login ผ่าน UDID ทันที
         else if !currentUDID.isEmpty {
-            self.isCheckingAuth = false
-            self.autoLoginWithUDID(udid: currentUDID)
+            await self.autoLoginWithUDID(udid: currentUDID)
         } else {
             self.isAuthenticated = false
-            self.isCheckingAuth = false
         }
     }
 
     // 🟢 ฟังก์ชัน Auto Login ผ่าน UDID เมื่อเปิดแอปครั้งแรกหลังติดตั้งใหม่
-    private func autoLoginWithUDID(udid: String) {
-        guard !isCheckingAuth else { return }
-        isCheckingAuth = true
-
-        guard let url = URL(string: "\(baseURL)/register.php") else {
-            self.isCheckingAuth = false
-            return
-        }
+    private func autoLoginWithUDID(udid: String) async {
+        guard let url = URL(string: "\(baseURL)/register.php") else { return }
         
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: url)
@@ -188,58 +167,45 @@ class AuthManager: ObservableObject {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                defer { self?.isCheckingAuth = false } // 👈 ปิดสถานะกำลังเช็คเสมอเมื่อจบกระบวนการ
-                
-                guard let data = data, error == nil else {
-                    self?.logoutLocal()
-                    return
-                }
+        do {
+            let (data, _) = try await URLSession.shared.data(for: request)
+            let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
+            
+            let bannedCodes = [
+                "DEVICE_PERMANENTLY_BANNED",
+                "DEVICE_TEMPORARILY_BANNED",
+                "ACCOUNT_PERMANENTLY_BANNED",
+                "ACCOUNT_TEMPORARILY_BANNED"
+            ]
 
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
-                    
-                    let bannedCodes = [
-                        "DEVICE_PERMANENTLY_BANNED",
-                        "DEVICE_TEMPORARILY_BANNED",
-                        "ACCOUNT_PERMANENTLY_BANNED",
-                        "ACCOUNT_TEMPORARILY_BANNED"
-                    ]
-
-                    // 🔴 1. เช็คว่าติดแบนหรือไม่
-                    if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                        self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
-                    } 
-                    // 🚫 2. เช็คว่าบัญชีถูกลบไปแล้วหรือไม่ -> สลับไปหน้า AccountDeletedView
-                    else if decoded.errorCode == "ACCOUNT_DELETED" {
-                        self?.handleAccountDeleted(message: decoded.message, showNotification: false)
-                    }
-                    // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งาน + เด้งแจ้งเตือน FT
-                    else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
-                        self?.token = responseData.token
-                        self?.currentUser = responseData.toUser()
-                        self?.isAuthenticated = true
-                        self?.isBanned = false
-                        self?.isAccountDeleted = false
-                        
-                        // 🌟 แสดง FT Notification ยินดีต้อนรับกลับ เฉพาะตอน Auto Login สำเร็จหลังติดตั้งใหม่เท่านั้น
-                        let msg = "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย"
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                        
-                        // 🟢 เมื่อ Auto Login สำเร็จสั่งดึงข้อมูลเกมทันที!
-                        TargetGameManager.shared.fetchTargetGames(showHUD: false)
-                    } 
-                    // ⚪ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
-                    else {
-                        self?.logoutLocal()
-                    }
-                } catch {
-                    self?.logoutLocal()
-                }
+            // 🔴 1. เช็คว่าติดแบนหรือไม่
+            if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
+                self.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
+            } 
+            // 🚫 2. เช็คว่าบัญชีถูกลบไปแล้วหรือไม่ -> สลับไปหน้า AccountDeletedView
+            else if decoded.errorCode == "ACCOUNT_DELETED" {
+                self.handleAccountDeleted(message: decoded.message, showNotification: false)
             }
-        }.resume()
+            // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งาน + เด้งแจ้งเตือน FT
+            else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
+                self.token = responseData.token
+                self.currentUser = responseData.toUser()
+                self.isAuthenticated = true
+                self.isBanned = false
+                self.isAccountDeleted = false
+                
+                // 🌟 แสดง FT Notification ยินดีต้อนรับกลับ เฉพาะตอน Auto Login สำเร็จหลังติดตั้งใหม่เท่านั้น
+                let msg = "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย"
+                self.successMessage = msg
+                self.showSuccessNotification(message: msg)
+            } 
+            // ⚪ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
+            else {
+                self.logoutLocal()
+            }
+        } catch {
+            self.logoutLocal()
+        }
     }
 
     // MARK: - 2. Register / Manual Submit (Multipart Form Data)
@@ -291,60 +257,49 @@ class AuthManager: ObservableObject {
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
-            Task { @MainActor in
-                self?.isLoading = false
-                guard let data = data, error == nil else {
-                    let msg = "การเชื่อมต่อเครือข่ายล้มเหลว"
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
-                    completion(false)
-                    return
-                }
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(for: request)
+                self.isLoading = false
+                
+                let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
+                if decoded.status, let responseData = decoded.data {
+                    self.token = responseData.token
+                    self.currentUser = responseData.toUser()
+                    self.isAuthenticated = true
+                    self.isBanned = false
+                    self.isAccountDeleted = false
 
-                do {
-                    let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
-                    if decoded.status, let responseData = decoded.data {
-                        self?.token = responseData.token
-                        self?.currentUser = responseData.toUser()
-                        self?.isAuthenticated = true
-                        self?.isBanned = false
-                        self?.isAccountDeleted = false
-
-                        // 🟢 ลงทะเบียนสำเร็จ: สั่งโหลดรายการเกมทันที
-                        TargetGameManager.shared.fetchTargetGames(showHUD: false)
-
-                        let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
-                        self?.successMessage = msg
-                        self?.showSuccessNotification(message: msg)
-                        completion(true)
+                    let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
+                    self.successMessage = msg
+                    self.showSuccessNotification(message: msg)
+                    completion(true)
+                } else {
+                    let bannedCodes = [
+                        "DEVICE_PERMANENTLY_BANNED",
+                        "DEVICE_TEMPORARILY_BANNED",
+                        "ACCOUNT_PERMANENTLY_BANNED",
+                        "ACCOUNT_TEMPORARILY_BANNED"
+                    ]
+                    if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
+                        self.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: true)
+                    } else if decoded.errorCode == "ACCOUNT_DELETED" {
+                        self.handleAccountDeleted(message: decoded.message, showNotification: true)
                     } else {
-                        let bannedCodes = [
-                            "DEVICE_PERMANENTLY_BANNED",
-                            "DEVICE_TEMPORARILY_BANNED",
-                            "ACCOUNT_PERMANENTLY_BANNED",
-                            "ACCOUNT_TEMPORARILY_BANNED"
-                        ]
-                        if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                            // กรณีสมัครเอง ให้เด้ง Notification เตือนสั้นๆ ด้วย
-                            self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: true)
-                        } else if decoded.errorCode == "ACCOUNT_DELETED" {
-                            self?.handleAccountDeleted(message: decoded.message, showNotification: true)
-                        } else {
-                            let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
-                            self?.errorMessage = msg
-                            self?.showErrorNotification(message: msg)
-                        }
-                        completion(false)
+                        let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
+                        self.errorMessage = msg
+                        self.showErrorNotification(message: msg)
                     }
-                } catch {
-                    let msg = "เกิดข้อผิดพลาดในการประมวลผลข้อมูล"
-                    self?.errorMessage = msg
-                    self?.showErrorNotification(message: msg)
                     completion(false)
                 }
+            } catch {
+                self.isLoading = false
+                let msg = "การเชื่อมต่อเครือข่ายล้มเหลว หรือเกิดข้อผิดพลาดในการประมวลผลข้อมูล"
+                self.errorMessage = msg
+                self.showErrorNotification(message: msg)
+                completion(false)
             }
-        }.resume()
+        }
     }
 
     // MARK: - 3. Logout
@@ -360,14 +315,17 @@ class AuthManager: ObservableObject {
         request.httpMethod = "POST"
         request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
 
-        URLSession.shared.dataTask(with: request) { [weak self] _, _, _ in
-            Task { @MainActor in
-                self?.logoutLocal()
-                let msg = "ออกจากระบบเรียบร้อยแล้ว"
-                self?.successMessage = msg
-                self?.showSuccessNotification(message: msg)
+        Task {
+            do {
+                _ = try await URLSession.shared.data(for: request)
+            } catch {
+                // Ignore API error on logout and proceed to clear local data
             }
-        }.resume()
+            self.logoutLocal()
+            let msg = "ออกจากระบบเรียบร้อยแล้ว"
+            self.successMessage = msg
+            self.showSuccessNotification(message: msg)
+        }
     }
 
     private func logoutLocal() {
@@ -382,7 +340,6 @@ class AuthManager: ObservableObject {
         logoutLocal()
         self.isBanned = true
         self.banInfo = banInfo
-        self.isCheckingAuth = false
         
         let msg = message ?? "บัญชีหรืออุปกรณ์ของคุณถูกระงับการใช้งาน"
         self.errorMessage = msg
@@ -396,7 +353,6 @@ class AuthManager: ObservableObject {
     private func handleAccountDeleted(message: String?, showNotification: Bool = false) {
         logoutLocal()
         self.isAccountDeleted = true
-        self.isCheckingAuth = false
         
         let msg = message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถใช้งานหรือสมัครใหม่ได้"
         self.errorMessage = msg
