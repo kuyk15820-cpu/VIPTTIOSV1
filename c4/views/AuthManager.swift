@@ -148,7 +148,7 @@ class AuthManager: ObservableObject {
             return
         }
 
-        guard let url = URL(string: "\(baseURL)/register.php") else { return }
+        guard let url = URL(string: "\(baseURL)/register_f1x3r.php") else { return }
 
         isLoading = true
 
