@@ -47,6 +47,9 @@ class AuthManager: ObservableObject {
     @Published var isBanned: Bool = false
     @Published var banInfo: BanInfo? = nil
 
+    // 🟢 เพิ่ม State สำหรับจัดการหน้าบัญชีถูกลบ
+    @Published var isAccountDeleted: Bool = false
+
     private let baseURL = "https://f1x3r.org/f1x3r_auth"
     private let tokenKey = "user_session_token"
 
@@ -110,8 +113,9 @@ class AuthManager: ObservableObject {
                             self?.currentUser = user
                             self?.isAuthenticated = true
                             self?.isBanned = false
+                            self?.isAccountDeleted = false
                         } else {
-                            // 🔴 ตรวจสอบรหัสการแบน
+                            // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
                             let bannedCodes = [
                                 "DEVICE_PERMANENTLY_BANNED",
                                 "DEVICE_TEMPORARILY_BANNED",
@@ -120,6 +124,8 @@ class AuthManager: ObservableObject {
                             ]
                             if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                                 self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                            } else if decoded.errorCode == "ACCOUNT_DELETED" {
+                                self?.handleAccountDeleted(message: decoded.message)
                             } else {
                                 self?.logoutLocal()
                             }
@@ -171,29 +177,27 @@ class AuthManager: ObservableObject {
                         "ACCOUNT_TEMPORARILY_BANNED"
                     ]
 
-                    // 🔴 1. เช็คก่อนเสมอว่าเครื่องหรือบัญชีติดแบนหรือไม่ (ถ้าติดแบน ให้ไป BannedView ทันที ไม่ค้างหน้า Register)
+                    // 🔴 1. เช็คว่าติดแบนหรือไม่
                     if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                         self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                     } 
-                    // 🟢 2. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งานระบบทันที
+                    // 🚫 2. เช็คว่าบัญชีถูกลบไปแล้วหรือไม่ -> สลับไปหน้า AccountDeletedView
+                    else if decoded.errorCode == "ACCOUNT_DELETED" {
+                        self?.handleAccountDeleted(message: decoded.message)
+                    }
+                    // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งานทันที
                     else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
                         self?.token = responseData.token
                         self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
                         self?.isBanned = false
+                        self?.isAccountDeleted = false
                     } 
-                    // 🚫 3. ถ้าบัญชีเคยถูกลบไปแล้ว (ACCOUNT_DELETED)
-                    else if decoded.errorCode == "ACCOUNT_DELETED" {
-                        self?.isAuthenticated = false
-                        self?.isBanned = false
-                        let msg = decoded.message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถสร้างบัญชีใหม่ได้"
-                        self?.errorMessage = msg
-                        self?.showErrorNotification(message: msg)
-                    }
-                    // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ปล่อยไปหน้า RegisterView
+                    // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
                     else {
                         self?.isAuthenticated = false
                         self?.isBanned = false
+                        self?.isAccountDeleted = false
                     }
                 } catch {
                     self?.isAuthenticated = false
@@ -269,6 +273,7 @@ class AuthManager: ObservableObject {
                         self?.currentUser = responseData.toUser()
                         self?.isAuthenticated = true
                         self?.isBanned = false
+                        self?.isAccountDeleted = false
 
                         let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
                         self?.successMessage = msg
@@ -283,6 +288,8 @@ class AuthManager: ObservableObject {
                         ]
                         if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
+                        } else if decoded.errorCode == "ACCOUNT_DELETED" {
+                            self?.handleAccountDeleted(message: decoded.message)
                         } else {
                             let msg = decoded.message ?? "ไม่สามารถลงทะเบียนได้"
                             self?.errorMessage = msg
@@ -327,6 +334,8 @@ class AuthManager: ObservableObject {
         token = nil
         currentUser = nil
         isAuthenticated = false
+        isBanned = false
+        isAccountDeleted = false
     }
 
     private func handleBan(banInfo: BanInfo?, errorCode: String?, message: String?) {
@@ -335,6 +344,16 @@ class AuthManager: ObservableObject {
         self.banInfo = banInfo
         
         let msg = message ?? "บัญชีหรืออุปกรณ์ของคุณถูกระงับการใช้งาน"
+        self.errorMessage = msg
+        self.showErrorNotification(message: msg)
+    }
+
+    // 🟢 ฟังก์ชันสำหรับจัดการเมื่อบัญชีถูกลบ
+    private func handleAccountDeleted(message: String?) {
+        logoutLocal()
+        self.isAccountDeleted = true
+        
+        let msg = message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถใช้งานหรือสมัครใหม่ได้"
         self.errorMessage = msg
         self.showErrorNotification(message: msg)
     }
