@@ -123,6 +123,9 @@ class AuthManager: ObservableObject {
                             self?.isBanned = false
                             self?.isAccountDeleted = false
                             self?.isCheckingAuth = false
+                            
+                            // 🟢 Token สมบูรณ์: สั่งอัปเดตข้อมูลเกมล่วงหน้าทันที
+                            TargetGameManager.shared.fetchTargetGames(showHUD: false)
                         } else {
                             // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
                             let bannedCodes = [
@@ -208,6 +211,9 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
                         self?.isAccountDeleted = false
+                        
+                        // 🟢 วิธีที่ 1: เมื่อ Auto Login สำเร็จและได้ Token ใหม่มาแล้ว สั่งดึงข้อมูลเกมทันที!
+                        TargetGameManager.shared.fetchTargetGames(showHUD: false)
                     } 
                     // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
                     else {
@@ -288,6 +294,9 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
                         self?.isAccountDeleted = false
+
+                        // 🟢 ลงทะเบียนสำเร็จ: สั่งโหลดรายการเกมทันที
+                        TargetGameManager.shared.fetchTargetGames(showHUD: false)
 
                         let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
                         self?.successMessage = msg
