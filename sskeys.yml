@@ -5,8 +5,8 @@ output: c4/helpers/
 keys:
   # Base Domain & Endpoints
   hostDomain: "f1x3r.org"
-  targetGamesURL: "https://f1x3r.org/patches/games.json"
-  catalogURL: "https://f1x3r.org/patches/catalog.json"
+  targetGamesURL: "https://f1x3r.org/patches/get_games.php"
+  catalogURL: "https://f1x3r.org/patches/get_catalog.php"
   appUpdateURL: "https://f1x3r.org/pv/app_version.php"
   
   # Hashes for SSL Pinning
