@@ -43,11 +43,14 @@ class AuthManager: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var successMessage: String? = nil
     
+    // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (ป้องกัน UI เด้งไป RegisterView ก่อน API ตอบกลับ)
+    @Published var isCheckingAuth: Bool = true
+    
     // ข้อมูลกรณีถูกแบน
     @Published var isBanned: Bool = false
     @Published var banInfo: BanInfo? = nil
 
-    // 🟢 เพิ่ม State สำหรับจัดการหน้าบัญชีถูกลบ
+    // ข้อมูลกรณีบัญชีถูกลบ
     @Published var isAccountDeleted: Bool = false
 
     private let baseURL = "https://f1x3r.org/f1x3r_auth"
@@ -91,11 +94,15 @@ class AuthManager: ObservableObject {
 
     // MARK: - 1. Check Auth Status (หรือ Auto Login ผ่าน UDID กรณีลบแอป)
     func checkAuthStatus() {
+        isCheckingAuth = true
         let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
         // 🟢 กรณีที่ 1: มี Token ค้างอยู่ใน UserDefaults
         if let savedToken = token, !savedToken.isEmpty {
-            guard let url = URL(string: "\(baseURL)/check_auth.php") else { return }
+            guard let url = URL(string: "\(baseURL)/check_auth.php") else {
+                isCheckingAuth = false
+                return
+            }
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
@@ -103,7 +110,8 @@ class AuthManager: ObservableObject {
             URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
                 Task { @MainActor in
                     guard let data = data, error == nil else {
-                        self?.isAuthenticated = false
+                        // ถ้าเกิด Network Error กับ Token ให้ลอง fallback เช็คผ่าน UDID
+                        self?.autoLoginWithUDID(udid: currentUDID)
                         return
                     }
 
@@ -114,6 +122,7 @@ class AuthManager: ObservableObject {
                             self?.isAuthenticated = true
                             self?.isBanned = false
                             self?.isAccountDeleted = false
+                            self?.isCheckingAuth = false
                         } else {
                             // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
                             let bannedCodes = [
@@ -127,26 +136,31 @@ class AuthManager: ObservableObject {
                             } else if decoded.errorCode == "ACCOUNT_DELETED" {
                                 self?.handleAccountDeleted(message: decoded.message)
                             } else {
-                                self?.logoutLocal()
+                                // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที (กรณีโดนแบนหรือลบชั่วคราว)
+                                self?.autoLoginWithUDID(udid: currentUDID)
                             }
                         }
                     } catch {
-                        self?.logoutLocal()
+                        self?.autoLoginWithUDID(udid: currentUDID)
                     }
                 }
             }.resume()
         } 
-        // 🟢 กรณีที่ 2: ไม่มี Token (เช่น ลบแอปแล้วโหลดใหม่) -> Auto Login ด้วย UDID ทันที
+        // 🟢 กรณีที่ 2: ไม่มี Token -> Auto Login ผ่าน UDID ทันที
         else if !currentUDID.isEmpty {
             self.autoLoginWithUDID(udid: currentUDID)
         } else {
             self.isAuthenticated = false
+            self.isCheckingAuth = false
         }
     }
 
     // 🟢 ฟังก์ชัน Auto Login ผ่าน UDID เมื่อเปิดแอปครั้งแรกหลังติดตั้งใหม่
     private func autoLoginWithUDID(udid: String) {
-        guard let url = URL(string: "\(baseURL)/register.php") else { return }
+        guard let url = URL(string: "\(baseURL)/register.php") else {
+            self.isCheckingAuth = false
+            return
+        }
         
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: url)
@@ -162,8 +176,10 @@ class AuthManager: ObservableObject {
 
         URLSession.shared.dataTask(with: request) { [weak self] data, _, error in
             Task { @MainActor in
+                defer { self?.isCheckingAuth = false } // 👈 ปิดสถานะกำลังเช็คเสมอเมื่อจบกระบวนการ
+                
                 guard let data = data, error == nil else {
-                    self?.isAuthenticated = false
+                    self?.logoutLocal()
                     return
                 }
 
@@ -195,12 +211,10 @@ class AuthManager: ObservableObject {
                     } 
                     // ⚪️ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
                     else {
-                        self?.isAuthenticated = false
-                        self?.isBanned = false
-                        self?.isAccountDeleted = false
+                        self?.logoutLocal()
                     }
                 } catch {
-                    self?.isAuthenticated = false
+                    self?.logoutLocal()
                 }
             }
         }.resume()
@@ -342,6 +356,7 @@ class AuthManager: ObservableObject {
         logoutLocal()
         self.isBanned = true
         self.banInfo = banInfo
+        self.isCheckingAuth = false
         
         let msg = message ?? "บัญชีหรืออุปกรณ์ของคุณถูกระงับการใช้งาน"
         self.errorMessage = msg
@@ -352,6 +367,7 @@ class AuthManager: ObservableObject {
     private func handleAccountDeleted(message: String?) {
         logoutLocal()
         self.isAccountDeleted = true
+        self.isCheckingAuth = false
         
         let msg = message ?? "บัญชีที่ผูกกับอุปกรณ์นี้ถูกลบแล้ว ไม่สามารถใช้งานหรือสมัครใหม่ได้"
         self.errorMessage = msg
