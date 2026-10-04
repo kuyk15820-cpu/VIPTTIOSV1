@@ -83,7 +83,9 @@ struct AccountDeletedView: View {
 
                     // ปุ่มกลับไปตรวจสอบสถานะใหม่
                     Button(action: {
-                        authManager.checkAuthStatus()
+                        Task {
+                            await authManager.checkAuthStatus()
+                        }
                     }) {
                         HStack(spacing: 8) {
                             Image(systemName: "arrow.clockwise")
