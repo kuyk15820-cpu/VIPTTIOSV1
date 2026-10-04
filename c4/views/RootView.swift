@@ -5,12 +5,11 @@ struct RootView: View {
     
     var body: some View {
         Group {
-            if authManager.isBanned {
-                BannedView()
-            } else if authManager.isAuthenticated {
+            // เอาเงื่อนไข if authManager.isBanned ออกชั่วคราว
+            if authManager.isAuthenticated {
                 MainContentView()
             } else {
-                LoginView()
+                RegisterView()
             }
         }
         .environmentObject(authManager)
