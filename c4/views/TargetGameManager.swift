@@ -12,6 +12,9 @@ class TargetGameManager: ObservableObject {
     
     private var fetchHandler: FetchGamesHandler?
     
+    // Key สำหรับดึง Token จาก UserDefaults
+    private let tokenKey = "user_session_token"
+    
     // MARK: - Target Games State
     @Published var targetApps: [TargetGameApp] = []
     @Published var isLoading: Bool = false
@@ -65,6 +68,11 @@ class TargetGameManager: ObservableObject {
         request.timeoutInterval = 15.0
         request.setValue(SecretKeys.userAgentValue, forHTTPHeaderField: SecretKeys.userAgentHeader)
         
+        // 🔒 🔒 ยืนยันตัวตน: แนบ Bearer Token ไปใน Authorization Header ทุกครั้ง
+        if let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
         // 🟢 ใช้ urlSession ที่ผูก Delegate SSL Pinning ผ่าน TrustKit
         urlSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
@@ -73,10 +81,18 @@ class TargetGameManager: ObservableObject {
             
             if let error = error {
                 print("⚠️ [Fetch Games Error / SSL Blocked]: \(error.localizedDescription)")
-            } else if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode), let data = data {
-                if let decodedGames = try? JSONDecoder().decode([TargetGameApp].self, from: data) {
-                    // กรองเอาเฉพาะเกมที่ active != false
-                    fetchedApps = decodedGames.filter { $0.active ?? true }
+            } else if let httpResponse = response as? HTTPURLResponse {
+                // 🔒 กรณี Server แจ้งว่าไม่ได้ยืนยันตัวตน หรือ Token หมดอายุ / ติดแบน (HTTP 401)
+                if httpResponse.statusCode == 401 {
+                    print("🔴 [Unauthorized Access]: Token invalid or user banned.")
+                    Task { @MainActor in
+                        AuthManager.shared.checkAuthStatus()
+                    }
+                } else if (200...299).contains(httpResponse.statusCode), let data = data {
+                    if let decodedGames = try? JSONDecoder().decode([TargetGameApp].self, from: data) {
+                        // กรองเอาเฉพาะเกมที่ active != false
+                        fetchedApps = decodedGames.filter { $0.active ?? true }
+                    }
                 }
             }
             
