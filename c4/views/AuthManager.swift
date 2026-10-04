@@ -112,7 +112,14 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
                     } else {
-                        if decoded.errorCode == "DEVICE_PERMANENTLY_BANNED" || decoded.errorCode == "DEVICE_TEMPORARILY_BANNED" {
+                        // 🟢 ดักจับการแบนทั้ง 4 รูปแบบ (ทั้ง User และ Device)
+                        let bannedCodes = [
+                            "DEVICE_PERMANENTLY_BANNED",
+                            "DEVICE_TEMPORARILY_BANNED",
+                            "ACCOUNT_PERMANENTLY_BANNED",
+                            "ACCOUNT_TEMPORARILY_BANNED"
+                        ]
+                        if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                         } else {
                             self?.logoutLocal()
@@ -125,20 +132,12 @@ class AuthManager: ObservableObject {
         }.resume()
     }
 
-    // MARK: - 2. Register Account (Multipart Form Data)
+    // MARK: - 2. Register / Auto Login (Multipart Form Data)
     func register(fullName: String, udid: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
         clearMessages()
 
         let trimmedFullName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedUDID = udid.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedFullName.isEmpty else {
-            let msg = "กรุณากรอกชื่อ-นามสกุล"
-            errorMessage = msg
-            showErrorNotification(message: msg)
-            completion(false)
-            return
-        }
 
         guard !trimmedUDID.isEmpty else {
             let msg = "ไม่พบรหัส UDID ของเครื่อง"
@@ -148,7 +147,8 @@ class AuthManager: ObservableObject {
             return
         }
 
-        guard let url = URL(string: "\(baseURL)/register_f1x3r.php") else { return }
+        // ปรับ Endpoint เป็น register.php ตามที่ใช้งานจริง
+        guard let url = URL(string: "\(baseURL)/register.php") else { return }
 
         isLoading = true
 
@@ -201,13 +201,20 @@ class AuthManager: ObservableObject {
                         self?.isAuthenticated = true
                         self?.isBanned = false
 
-                        let msg = "ลงทะเบียนเรียบร้อยแล้ว"
+                        // 🟢 แยกแจ้งเตือนระหว่าง ผู้ใช้เดิม (Auto Login) กับ ผู้ใช้ใหม่
+                        let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
                         self?.successMessage = msg
                         self?.showSuccessNotification(message: msg)
                         completion(true)
                     } else {
-                        // เช็คกรณีถูกแบน
-                        if decoded.errorCode == "DEVICE_PERMANENTLY_BANNED" || decoded.errorCode == "DEVICE_TEMPORARILY_BANNED" {
+                        // 🟢 ดักจับการถูกแบนทุกประเภท
+                        let bannedCodes = [
+                            "DEVICE_PERMANENTLY_BANNED",
+                            "DEVICE_TEMPORARILY_BANNED",
+                            "ACCOUNT_PERMANENTLY_BANNED",
+                            "ACCOUNT_TEMPORARILY_BANNED"
+                        ]
+                        if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                             self?.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message)
                         } else {
                             let msg = decoded.message
@@ -260,7 +267,7 @@ class AuthManager: ObservableObject {
         self.isBanned = true
         self.banInfo = banInfo
         
-        let msg = message ?? "อุปกรณ์ของคุณถูกระงับการใช้งาน"
+        let msg = message ?? "บัญชีหรืออุปกรณ์ของคุณถูกระงับการใช้งาน"
         self.errorMessage = msg
         self.showErrorNotification(message: msg)
     }
