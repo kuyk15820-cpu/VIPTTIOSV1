@@ -93,7 +93,9 @@ struct BannedView: View {
 
             // 4. ปุ่มตรวจสอบสถานะการปลดแบน
             Button(action: {
-                authManager.checkAuthStatus()
+                Task {
+                    await authManager.checkAuthStatus()
+                }
             }) {
                 HStack {
                     Image(systemName: "arrow.clockwise")
