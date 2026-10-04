@@ -1,25 +1,22 @@
 import Foundation
 
-// MARK: - User Model
+// MARK: - Register Response Data Model
+/// รองรับ Object Data ที่ส่งกลับมาจาก register.php
 struct User: Codable, Identifiable {
     let id: Int
     let fullName: String
-    let username: String
-    let email: String
-    let role: String
-    let createdAt: String?
-    let firstLoginAt: String?
-    let lastLoginAt: String?
+    let avatarUrl: String?
+    let deviceId: Int?
+    let udid: String?
+    let token: String?
 
     enum CodingKeys: String, CodingKey {
-        case id
+        case id = "user_id"          // PHP ส่งมาเป็น user_id
         case fullName = "full_name"
-        case username
-        case email
-        case role
-        case createdAt = "created_at"
-        case firstLoginAt = "first_login_at"
-        case lastLoginAt = "last_login_at"
+        case avatarUrl = "avatar_url"
+        case deviceId = "device_id"
+        case udid
+        case token
     }
 }
 
