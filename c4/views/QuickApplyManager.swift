@@ -12,6 +12,9 @@ class QuickApplyManager: ObservableObject {
     
     private var fetchHandler: FetchCatalogHandler?
     
+    // Key สำหรับดึง Token จาก UserDefaults
+    private let tokenKey = "user_session_token"
+    
     // MARK: - Patch Catalog State
     @Published var patchItems: [QuickPatchItem] = []
     @Published var isLoadingCatalog: Bool = false
@@ -43,13 +46,20 @@ class QuickApplyManager: ObservableObject {
         }
     }
     
+    // MARK: - Lazy Loading Helper
+    /// สั่งโหลดข้อมูลเฉพาะเมื่อยังไม่มีข้อมูลใน Cache และไม่ได้กำลังโหลดอยู่
+    func loadIfNeeded() {
+        guard patchItems.isEmpty && !isLoadingCatalog else { return }
+        fetchCatalog(force: false, showHUD: false)
+    }
+    
     // MARK: - Fetch Catalog Logic
     func fetchCatalog(force: Bool = false, showHUD: Bool = false, handler: FetchCatalogHandler? = nil) {
         if let customHandler = handler {
             self.fetchHandler = customHandler
         }
         
-        // 🟢 การันตีการเรียก Handler เสมอเมื่อ Early Return ป้องกัน Continuation ค้าง (Never Resumed)
+        // 🟢 กรณีมีข้อมูลอยู่แล้ว และไม่ได้สั่งบังคับโหลดใหม่ (force: true) ให้คืนค่าจาก Cache ทันที (Lazy Loading Optimizing)
         if !patchItems.isEmpty && !force {
             self.fetchHandler?(self.patchItems)
             return
@@ -75,21 +85,34 @@ class QuickApplyManager: ObservableObject {
         request.timeoutInterval = 15.0
         request.setValue(SecretKeys.userAgentValue, forHTTPHeaderField: SecretKeys.userAgentHeader)
         
+        // 🔒 ยืนยันตัวตน: แนบ Bearer Token ไปใน Authorization Header ทุกครั้ง
+        if let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        
         // 🟢 ใช้ urlSession ที่ผูก Delegate SSL Pinning ผ่าน TrustKit
         urlSession.dataTask(with: request) { [weak self] data, response, error in
             guard let self = self else { return }
             
-            var fetchedItems: [QuickPatchItem] = []
+            var fetchedItems: [QuickPatchItem] = self.patchItems
             
             if let error = error {
-                print("⚠️ [Fetch Catalog Error / SSL Blocked]: \(error.localizedDescription)")
-            } else if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode), let data = data {
-                if let decodedItems = try? JSONDecoder().decode([QuickPatchItem].self, from: data) {
-                    fetchedItems = decodedItems
+                print("⚠️️ [Fetch Catalog Error / SSL Blocked]: \(error.localizedDescription)")
+            } else if let httpResponse = response as? HTTPURLResponse {
+                // 🔒 กรณี Token หมดอายุ / บัญชีถูกระงับสิทธิ์ (HTTP 401)
+                if httpResponse.statusCode == 401 {
+                    print("🔴 [Unauthorized Access Catalog]: Token invalid or user banned.")
+                    Task { @MainActor in
+                        await AuthManager.shared.checkAuthStatus()
+                    }
+                } else if (200...299).contains(httpResponse.statusCode), let data = data {
+                    if let decodedItems = try? JSONDecoder().decode([QuickPatchItem].self, from: data) {
+                        fetchedItems = decodedItems
+                    }
                 }
             }
             
-            // การันตีการแสดง HUD อย่างน้อย 1 วินาทีเพื่อความสม่ำเสมอของ UI
+            // การันตีการแสดง HUD อย่างน้อย 1 วินาทีเพื่อความสม่ำเสมอของ UI (ถ้ากำหนด showHUD)
             let elapsedTime = Date().timeIntervalSince(startTime)
             let minDuration: TimeInterval = showHUD ? 1.0 : 0.0
             let remainingTime = max(0, minDuration - elapsedTime)
