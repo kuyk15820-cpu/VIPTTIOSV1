@@ -94,9 +94,10 @@ struct QuickApplyView: View {
             // MARK: - Main Content Area
             if viewModel.patchItems.isEmpty {
                 if viewModel.isLoadingCatalog {
-                    // 🟢 โหลดครั้งแรกเบื้องหลัง และยังไม่มีข้อมูลในมือ -> แสดงพื้นที่ว่างเปล่า (กันกระพริบ)
-                    Color.clear
+                    // 🟢 โหลดครั้งแรกสุด -> แสดง MaterialSpinner ล้วนๆ ตรงกลางหน้าจอ
+                    MaterialSpinner(isLoading: .constant(true))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
                 } else {
                     // 🟢 โหลดเสร็จแล้วแต่ไม่มีข้อมูล -> แสดง Empty State
                     VStack(spacing: 12) {
