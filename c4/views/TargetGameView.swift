@@ -19,9 +19,10 @@ struct TargetGameView: View {
             Group {
                 if gameManager.targetApps.isEmpty {
                     if gameManager.isLoading && !hasInitialLoaded {
-                        // 🟢 โหลดครั้งแรกสุดเท่านั้นที่ใช้ Color.clear
-                        Color.clear
+                        // 🟢 โหลดครั้งแรกสุด -> แสดง MaterialSpinner ล้วนๆ ตรงกลางหน้าจอ
+                        MaterialSpinner(isLoading: .constant(true))
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .transition(.opacity)
                     } else {
                         // 🟢 ถ้าเคยโหลดไปแล้ว หรือโหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState สถิตไว้ ไม่กระพริบ
                         EmptyStateView(type: .noGames)
@@ -55,6 +56,11 @@ struct TargetGameView: View {
                         }
                     }
                     .listStyle(.plain)
+                    // 🟢 ลากลงเพื่อบังคับรีเฟรชข้อมูลใหม่ (Pull to Refresh)
+                    .refreshable {
+                        await gameManager.fetchTargetGames(showHUD: false, force: true)
+                        self.hasInitialLoaded = true
+                    }
                 }
             }
             .navigationTitle(SecretKeys.textHomeNavigationTitle)
@@ -66,7 +72,9 @@ struct TargetGameView: View {
         .onAppear {
             // 🟢 โหลดข้อมูลเบื้องหลังโดยไม่ขึ้น HUD
             gameManager.fetchTargetGames(showHUD: false) { _ in
-                self.hasInitialLoaded = true
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    self.hasInitialLoaded = true
+                }
             }
             startNetworkMonitoring()
         }
