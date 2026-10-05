@@ -19,23 +19,15 @@ struct TargetGameView: View {
             Group {
                 if gameManager.targetApps.isEmpty {
                     if gameManager.isLoading && !hasInitialLoaded {
-                        // 🟢 ใช้ Spinner แสดงสถานะขณะรอโหลดครั้งแรก เพื่อให้มี Fade Transition นุ่มๆ
-                        VStack(spacing: 12) {
-                            ProgressView()
-                                .scaleEffect(1.2)
-                            Text("กำลังโหลด")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity)
+                        // 🟢 โหลดครั้งแรกสุดเท่านั้นที่ใช้ Color.clear
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     } else {
-                        // 🟢 ถ้าเคยโหลดไปแล้ว หรือโหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState
+                        // 🟢 ถ้าเคยโหลดไปแล้ว หรือโหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState สถิตไว้ ไม่กระพริบ
                         EmptyStateView(type: .noGames)
-                            .transition(.opacity)
                     }
                 } else {
-                    // 🟢 แสดง List พร้อมใส่ .transition(.opacity) ให้ Fade-in เข้ามา
+                    // 🟢 แสดง List เสมอ (ไม่ซ่อน List แม้กำลังเช็คข้อมูลเบื้องหลัง)
                     List {
                         Section {
                             ForEach(gameManager.targetApps) { app in
@@ -63,7 +55,6 @@ struct TargetGameView: View {
                         }
                     }
                     .listStyle(.plain)
-                    .transition(.opacity)
                 }
             }
             .navigationTitle(SecretKeys.textHomeNavigationTitle)
@@ -75,9 +66,7 @@ struct TargetGameView: View {
         .onAppear {
             // 🟢 โหลดข้อมูลเบื้องหลังโดยไม่ขึ้น HUD
             gameManager.fetchTargetGames(showHUD: false) { _ in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    self.hasInitialLoaded = true
-                }
+                self.hasInitialLoaded = true
             }
             startNetworkMonitoring()
         }
@@ -88,9 +77,7 @@ struct TargetGameView: View {
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
                 gameManager.fetchTargetGames(showHUD: false) { _ in
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        self.hasInitialLoaded = true
-                    }
+                    self.hasInitialLoaded = true
                 }
             }
         }
@@ -107,9 +94,7 @@ struct TargetGameView: View {
                 Task { @MainActor in
                     if self.gameManager.targetApps.isEmpty && !self.gameManager.isLoading {
                         self.gameManager.fetchTargetGames(showHUD: false) { _ in
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                self.hasInitialLoaded = true
-                            }
+                            self.hasInitialLoaded = true
                         }
                     }
                 }
