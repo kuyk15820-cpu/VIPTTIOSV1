@@ -36,22 +36,42 @@ class TargetGameManager: ObservableObject {
         )
     }
     
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+    
     @objc private func handleGameUpdateNotification() {
         Task { @MainActor in
-            self.fetchTargetGames(showHUD: false)
+            self.fetchTargetGames(showHUD: false, force: true)
         }
     }
     
+    // MARK: - Lazy Loading Helper
+    /// สั่งโหลดข้อมูลเฉพาะเมื่อยังไม่มีข้อมูลใน Cache และไม่ได้กำลังโหลดอยู่
+    func loadIfNeeded() {
+        guard targetApps.isEmpty && !isLoading else { return }
+        fetchTargetGames(showHUD: false)
+    }
+    
     // MARK: - Fetch Dynamic Games from Server
-    func fetchTargetGames(showHUD: Bool = false, handler: FetchGamesHandler? = nil) {
+    func fetchTargetGames(showHUD: Bool = false, force: Bool = false, handler: FetchGamesHandler? = nil) {
         if let customHandler = handler {
             self.fetchHandler = customHandler
+        }
+        
+        // 🟢 กรณีมีข้อมูลอยู่แล้ว และไม่ได้สั่งบังคับโหลดใหม่ (force: true) ให้คืนค่าจาก Cache ทันที (Lazy Loading Optimizing)
+        if !targetApps.isEmpty && !force {
+            self.fetchHandler?(self.targetApps)
+            return
         }
         
         // 🟢 พ่วงแอบตรวจเช็คเวอร์ชันระบบไปด้วยทุกครั้ง
         AppUpdateCheckerManager.shared.checkVersion()
         
-        guard let url = URL(string: SecretKeys.targetGamesURL) else { return }
+        guard let url = URL(string: SecretKeys.targetGamesURL) else {
+            self.fetchHandler?(self.targetApps)
+            return
+        }
         
         DispatchQueue.main.async {
             self.isLoading = true
@@ -97,7 +117,7 @@ class TargetGameManager: ObservableObject {
                 }
             }
             
-            // การันตีการแสดง HUD อย่างน้อย 1 วินาทีเพื่อความสม่ำเสมอของ UI
+            // การันตีการแสดง HUD อย่างน้อย 1 วินาทีเพื่อความสม่ำเสมอของ UI (ถ้ากำหนด showHUD)
             let elapsedTime = Date().timeIntervalSince(startTime)
             let minDuration: TimeInterval = showHUD ? 1.0 : 0.0
             let remainingTime = max(0, minDuration - elapsedTime)
@@ -114,6 +134,25 @@ class TargetGameManager: ObservableObject {
                 self.fetchHandler?(fetchedApps)
             }
         }.resume()
+    }
+    
+    // MARK: - Safe Async Wrapper
+    /// Async/Await Wrapper สำหรับใช้งานร่วมกับ `.task` หรือ `.refreshable` ใน SwiftUI
+    func fetchTargetGames(showHUD: Bool = false, force: Bool = false) async {
+        await withCheckedContinuation { continuation in
+            var isResumed = false
+            let lock = NSLock()
+            
+            fetchTargetGames(showHUD: showHUD, force: force) { _ in
+                lock.lock()
+                defer { lock.unlock() }
+                
+                if !isResumed {
+                    isResumed = true
+                    continuation.resume()
+                }
+            }
+        }
     }
 }
 
