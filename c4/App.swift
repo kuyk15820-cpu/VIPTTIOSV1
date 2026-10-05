@@ -176,25 +176,21 @@ struct ThreeOneOSFiveApp: App {
         networkMonitor.start(queue: monitorQueue)
     }
 
-    // MARK: - Helper Function เช็คเวอร์ชันพร้อมโหลดข้อมูล Auth, Target Games & Patches ล่วงหน้าก่อนปิด Splash Screen
+        // MARK: - Helper Function เช็คเวอร์ชันพร้อมโหลดข้อมูล Auth สั้นๆ ก่อนปิด Splash Screen
     private func performUpdateCheck() {
         let startTime = Date()
         
         Task { @MainActor in
-            // 🟢 1. รอเช็ค Auth สถานะผู้ใช้จนกว่าจะเสร็จสิ้นจริงๆ แบบ Native async/await
+            // 🟢 1. เช็ค Auth สถานะผู้ใช้
             await AuthManager.shared.checkAuthStatus()
             
-            // 🟢 2. ถ้าเป็นผู้ใช้ปกติ (Authenticated) ค่อยสั่งโหลดรายการเกมและแพตช์ล่วงหน้า
-            if AuthManager.shared.isAuthenticated {
-                await TargetGameManager.shared.fetchTargetGames(showHUD: false)
-                await QuickApplyManager.shared.fetchCatalog(force: true, showHUD: false)
-            }
-            
-            // 🟢 3. เช็คเวอร์ชันแอปควบคู่กันไป
+            // 🟢 2. ตัดส่วน fetchTargetGames และ fetchCatalog ออกจากตรงนี้
+            // เพื่อปล่อยให้ TargetGameView ทำหน้าที่ Lazy Load พร้อม Spinner + Fade Animation เอง
+
+            // 🟢 3. เช็คเวอร์ชันแอป
             AppUpdateCheckerManager.shared.checkVersion { needsUpdate, downloadUrl, releaseNotes, serverVersion in
                 Task { @MainActor in
                     defer {
-                        // ปลดล็อกให้สั่งเช็คเน็ตใหม่ได้ในครั้งต่อไป
                         self.isNetworkCheckingInProgress = false
                     }
 
@@ -210,7 +206,7 @@ struct ThreeOneOSFiveApp: App {
                         try? await Task.sleep(nanoseconds: remainingTime)
                     }
                     
-                    // 🟢 ปิด Splash Screen เพื่อแสดงหน้าจอปลายทางจริงเมื่อข้อมูลทุกอย่างพร้อมแล้ว
+                    // 🟢 ปิด Splash Screen เพื่อเข้าสู่หน้าจอหลัก
                     withAnimation(.easeOut(duration: 0.3)) {
                         self.isCheckingUpdate = false
                     }
