@@ -117,9 +117,9 @@ class TargetGameManager: ObservableObject {
                 }
             }
             
-            // การันตีการแสดง HUD อย่างน้อย 1 วินาทีเพื่อความสม่ำเสมอของ UI (ถ้ากำหนด showHUD)
+            // 🟢 การันตีเวลาโหลดอย่างน้อย 1.0 วินาทีเพื่อความสม่ำเสมอของการแสดงผล UI (Spinner/HUD)
             let elapsedTime = Date().timeIntervalSince(startTime)
-            let minDuration: TimeInterval = showHUD ? 1.0 : 0.0
+            let minDuration: TimeInterval = 1.0
             let remainingTime = max(0, minDuration - elapsedTime)
             
             DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
