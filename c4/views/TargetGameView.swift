@@ -85,7 +85,9 @@ struct TargetGameView: View {
         // 🟢 ตรวจจับเมื่อสลับแอปกลับเข้ามา (.active) -> ดึงข้อมูลอัปเดตแบบเงียบๆ เบื้องหลัง
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active && hasInitialLoaded {
-                gameManager.fetchTargetGames(showHUD: false, force: true)
+                Task {
+                    await gameManager.fetchTargetGames(showHUD: false, force: true)
+                }
             }
         }
     }
@@ -101,7 +103,7 @@ struct TargetGameView: View {
                 Task { @MainActor in
                     if self.hasInitialLoaded {
                         // ถ้าเคยโหลดสำเร็จแล้ว ให้อัปเดตข้อมูลเงียบๆ
-                        self.gameManager.fetchTargetGames(showHUD: false, force: true)
+                        await self.gameManager.fetchTargetGames(showHUD: false, force: true)
                     } else if !self.gameManager.isLoading {
                         // ถ้ายังไม่เคยโหลด ให้ยิงโหลดและแสดง Spinner 1 วินาที
                         await self.gameManager.fetchTargetGames(showHUD: false, force: true)
