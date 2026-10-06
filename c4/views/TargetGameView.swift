@@ -14,27 +14,27 @@ struct TargetGameView: View {
     // 🟢 Flag เช็คว่าเคยโหลดครั้งแรกสุดเสร็จสิ้นไปแล้วหรือยัง
     @State private var hasInitialLoaded = false
     
-    // 🟢 Flag คุมการแสดง Spinner โหลดข้อมูล
+    // 🟢 Flag คุมการแสดง Spinner (บังคับให้หมุนแสดงผลอย่างน้อย 1 วินาที)
     @State private var isShowingSpinner = true
 
-    // ⏱️️ กำหนดเวลาแสดง Spinner ขั้นต่ำ (1.0 วินาที)
+    // ⏱ กำหนดเวลาแสดง Spinner ขั้นต่ำ (1.0 วินาที)
     private let minLoadingDuration: TimeInterval = 1.0
 
     var body: some View {
         NavigationStack {
             Group {
-                if gameManager.targetApps.isEmpty {
-                    if isShowingSpinner || (gameManager.isLoading && !hasInitialLoaded) {
-                        // 🟢 โหลดครั้งแรกสุด -> แสดง MaterialSpinner ล้วนๆ ตรงกลางหน้าจออย่างน้อย 1 วินาที
-                        MaterialSpinner(isLoading: .constant(true))
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .transition(.opacity)
-                    } else {
-                        // 🟢 ถ้าเคยโหลดไปแล้ว หรือโหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState
-                        EmptyStateView(type: .noGames)
-                    }
+                // 🟢 1. ตราบใดที่ยังโหลดไม่เสร็จ หรือยังอยู่ในช่วง 1 วินาทีแรก -> ต้องแสดง Spinner เสมอ!
+                if isShowingSpinner || (gameManager.isLoading && !hasInitialLoaded) {
+                    MaterialSpinner(isLoading: .constant(true))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .transition(.opacity)
+                } 
+                // 🟢 2. พอพ้น 1 วินาทีและดึงข้อมูลเสร็จแล้ว ค่อยมาเช็ครายการเกม
+                else if gameManager.targetApps.isEmpty {
+                    // โหลดเสร็จแล้วแต่ไม่มีเกม -> แสดง EmptyState
+                    EmptyStateView(type: .noGames)
                 } else {
-                    // 🟢 แสดง List เสมอ (ไม่ซ่อน List แม้กำลังเช็คข้อมูลเบื้องหลัง)
+                    // มีรายการเกม -> แสดง List
                     List {
                         Section {
                             ForEach(gameManager.targetApps) { app in
@@ -83,7 +83,7 @@ struct TargetGameView: View {
         .onDisappear {
             stopNetworkMonitoring()
         }
-        // 🟢 ตรวจจับเมื่อสลับแอปกลับเข้ามา (.active) แล้วดึงข้อมูลใหม่แบบเงียบๆ
+        // 🟢 ตรวจจับเมื่อสลับแอปกลับเข้ามา (.active) แล้วดึงข้อมูลใหม่
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
                 Task {
@@ -99,24 +99,22 @@ struct TargetGameView: View {
     private func loadTargetGamesWithMinDuration(force: Bool) async {
         let startTime = Date()
         
-        // หากยังไม่เคยโหลด ให้เปิด Spinner ไว้
-        if !hasInitialLoaded {
-            isShowingSpinner = true
-        }
+        // บังคับแสดง Spinner เสมอเมื่อเริ่มกระบวนการโหลด
+        isShowingSpinner = true
 
-        // 🟢 1. เรียกยิง API ดึงข้อมูลรายการเกม
+        // 🟢 1. ยิง API ดึงข้อมูลรายการเกม
         await gameManager.fetchTargetGames(showHUD: false, force: force)
 
-        // 🟢 2. คำนวณเวลาที่ใช้ไปทั้งหมดในการดึงข้อมูล
+        // 🟢 2. คำนวณเวลาที่ใช้ไปในการดึงข้อมูลจริง
         let elapsedTime = Date().timeIntervalSince(startTime)
 
-        // 🟢 3. ถ้าใช้เวลาน้อยกว่า 1 วินาที ให้รอจนกว่าจะครบ 1 วินาที
+        // 🟢 3. หากใช้เวลาน้อยกว่า minLoadingDuration (1 วินาที) ให้รอให้ครบ 1 วินาที
         if elapsedTime < minLoadingDuration {
             let remainingTime = UInt64((minLoadingDuration - elapsedTime) * 1_000_000_000)
             try? await Task.sleep(nanoseconds: remainingTime)
         }
 
-        // 🟢 4. ปิดการแสดง Spinner พร้อม Animation นุ่มนวล
+        // 🟢 4. ปิด Spinner พร้อม Animation จางออกอย่างนุ่มนวล
         withAnimation(.easeInOut(duration: 0.25)) {
             self.hasInitialLoaded = true
             self.isShowingSpinner = false
