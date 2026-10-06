@@ -119,7 +119,7 @@ class TargetGameManager: ObservableObject {
             
             // 🟢 การันตีเวลาโหลดอย่างน้อย 1.0 วินาทีเพื่อความสม่ำเสมอของการแสดงผล UI (Spinner/HUD)
             let elapsedTime = Date().timeIntervalSince(startTime)
-            let minDuration: TimeInterval = 1.0
+            let minDuration: TimeInterval = 5.0
             let remainingTime = max(0, minDuration - elapsedTime)
             
             DispatchQueue.main.asyncAfter(deadline: .now() + remainingTime) {
