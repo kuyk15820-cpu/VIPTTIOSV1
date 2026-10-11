@@ -17,9 +17,9 @@ struct TargetGameView: View {
     var body: some View {
         NavigationStack {
             Group {
-                // 🟢 1. หน้าแรกสุด หรือตราบใดที่ยังโหลดครั้งแรกไม่เสร็จ -> แสดง Spinner
+                // 🟢 1. หน้าแรกสุด หรือตราบใดที่ยังโหลดครั้งแรกไม่เสร็จ -> แสดง ActivityIndicator
                 if !hasInitialLoaded || (gameManager.isLoading && gameManager.targetApps.isEmpty) {
-                    MaterialSpinner(isLoading: .constant(true))
+                    ActivityIndicator(isAnimating: true, style: .large)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
                 } 
@@ -56,10 +56,6 @@ struct TargetGameView: View {
                         }
                     }
                     .listStyle(.plain)
-                    // 🟢 ลากลงเพื่อบังคับรีเฟรชข้อมูลใหม่ (Pull to Refresh)
-                    .refreshable {
-                        await gameManager.fetchTargetGames(showHUD: false, force: true)
-                    }
                 }
             }
             .navigationTitle(SecretKeys.textHomeNavigationTitle)
@@ -105,7 +101,7 @@ struct TargetGameView: View {
                         // ถ้าเคยโหลดสำเร็จแล้ว ให้อัปเดตข้อมูลเงียบๆ
                         await self.gameManager.fetchTargetGames(showHUD: false, force: true)
                     } else if !self.gameManager.isLoading {
-                        // ถ้ายังไม่เคยโหลด ให้ยิงโหลดและแสดง Spinner 1 วินาที
+                        // ถ้ายังไม่เคยโหลด ให้ยิงโหลดและแสดง ActivityIndicator
                         await self.gameManager.fetchTargetGames(showHUD: false, force: true)
                         withAnimation(.easeInOut(duration: 0.25)) {
                             self.hasInitialLoaded = true
