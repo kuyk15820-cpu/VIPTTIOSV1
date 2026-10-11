@@ -43,7 +43,7 @@ class AuthManager: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var successMessage: String? = nil
     
-    // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (ป้องกัน UI เด้งไป RegisterView ก่อน API ตอบกลับ)
+    // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (ป้องกัน UI เด้งก่อน API ตอบกลับ)
     @Published var isCheckingAuth: Bool = false
     
     // ข้อมูลกรณีถูกแบน
@@ -94,17 +94,16 @@ class AuthManager: ObservableObject {
         )
     }
 
-    // MARK: - 1. Check Auth Status (หรือ Auto Login ผ่าน UDID กรณีลบแอป)
+    // MARK: - 1. Check Auth Status (ตรวจสอบ Token หรือสร้างบัญชีอัตโนมัติผ่าน UDID)
     func checkAuthStatus() async {
-        // 🟢 ป้องกันการยิง API ซ้ำซ้อนหากกำลังตรวจสอบอยู่แล้ว
         guard !isCheckingAuth else { return }
         
         isCheckingAuth = true
-        defer { isCheckingAuth = false } // การันตีว่าจะคืนค่าเป็น false เสมอเมื่อฟังก์ชันนี้ทำงานจบ
+        defer { isCheckingAuth = false }
         
         let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
-        // 🟢 กรณีที่ 1: มี Token ค้างอยู่ใน UserDefaults
+        // 🟢 กรณีที่ 1: มี Token ค้างอยู่ใน UserDefaults -> ตรวจสอบความถูกต้องกับเซิร์ฟเวอร์
         if let savedToken = token, !savedToken.isEmpty {
             guard let url = URL(string: "\(baseURL)/check_auth.php") else { return }
             
@@ -122,7 +121,6 @@ class AuthManager: ObservableObject {
                     self.isBanned = false
                     self.isAccountDeleted = false
                 } else {
-                    // 🔴 ตรวจสอบรหัสการแบน หรือการลบบัญชี
                     let bannedCodes = [
                         "DEVICE_PERMANENTLY_BANNED",
                         "DEVICE_TEMPORARILY_BANNED",
@@ -134,25 +132,24 @@ class AuthManager: ObservableObject {
                     } else if decoded.errorCode == "ACCOUNT_DELETED" {
                         self.handleAccountDeleted(message: decoded.message, showNotification: false)
                     } else {
-                        // 🔴 ถ้า Token ใช้ไม่ได้/หมดอายุ สั่งยิงเช็ค UDID ต่อทันที
-                        await self.autoLoginWithUDID(udid: currentUDID)
+                        // 🔴 ถ้า Token หมดอายุหรือไม่ถูกต้อง -> ยิงขอเข้าสู่ระบบ/สร้างบัญชีอัตโนมัติด้วย UDID
+                        await self.autoRegisterOrLoginWithUDID(udid: currentUDID)
                     }
                 }
             } catch {
-                // ถ้าเกิด Network Error ให้ลอง Fallback เช็คผ่าน UDID
-                await self.autoLoginWithUDID(udid: currentUDID)
+                await self.autoRegisterOrLoginWithUDID(udid: currentUDID)
             }
         } 
-        // 🟢 กรณีที่ 2: ไม่มี Token -> Auto Login ผ่าน UDID ทันที
+        // 🟢 กรณีที่ 2: ไม่มี Token -> ทำการสมัคร/เข้าสู่ระบบอัตโนมัติผ่าน UDID ทันที
         else if !currentUDID.isEmpty {
-            await self.autoLoginWithUDID(udid: currentUDID)
+            await self.autoRegisterOrLoginWithUDID(udid: currentUDID)
         } else {
             self.isAuthenticated = false
         }
     }
 
-    // 🟢 ฟังก์ชัน Auto Login ผ่าน UDID เมื่อเปิดแอปครั้งแรกหลังติดตั้งใหม่
-    private func autoLoginWithUDID(udid: String) async {
+    // 🟢 ฟังก์ชัน Auto Register / Login ผ่าน UDID (ส่งแค่ UDID ไป ถ้ายังไม่มี Server จะสร้างให้เอง)
+    private func autoRegisterOrLoginWithUDID(udid: String) async {
         guard let url = URL(string: "\(baseURL)/register.php") else { return }
         
         let boundary = "Boundary-\(UUID().uuidString)"
@@ -178,28 +175,22 @@ class AuthManager: ObservableObject {
                 "ACCOUNT_TEMPORARILY_BANNED"
             ]
 
-            // 🔴 1. เช็คว่าติดแบนหรือไม่
+            // 🔴 1. เช็คสถานะแบน
             if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
                 self.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: false)
             } 
-            // 🚫 2. เช็คว่าบัญชีถูกลบไปแล้วหรือไม่ -> สลับไปหน้า AccountDeletedView
+            // 🚫 2. เช็คสถานะถูกลบบัญชี
             else if decoded.errorCode == "ACCOUNT_DELETED" {
                 self.handleAccountDeleted(message: decoded.message, showNotification: false)
             }
-            // 🟢 3. ถ้าเป็นผู้ใช้เดิม (isExistingUser = true) -> Auto Login เข้าใช้งาน + เด้งแจ้งเตือน FT
-            else if decoded.status, decoded.isExistingUser == true, let responseData = decoded.data {
+            // 🟢 3. สำเร็จ! ไม่ว่าจะเป็นผู้ใช้เดิมหรือถูกสร้างให้อัตโนมัติใหม่ บันทึก Token แล้วเข้าแอปได้ทันที
+            else if decoded.status, let responseData = decoded.data {
                 self.token = responseData.token
                 self.currentUser = responseData.toUser()
                 self.isAuthenticated = true
                 self.isBanned = false
                 self.isAccountDeleted = false
-                
-                // 🌟 แสดง FT Notification ยินดีต้อนรับกลับ เฉพาะตอน Auto Login สำเร็จหลังติดตั้งใหม่เท่านั้น
-                let msg = "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย"
-                self.successMessage = msg
-                self.showSuccessNotification(message: msg)
             } 
-            // ⚪ 4. กรณี UDID ใหม่ที่ยังไม่เคยลงทะเบียน -> ไปหน้า RegisterView
             else {
                 self.logoutLocal()
             }
@@ -208,22 +199,23 @@ class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - 2. Register / Manual Submit (Multipart Form Data)
-    func register(fullName: String, udid: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
+    // MARK: - 2. Update Profile (สำหรับหน้า AccountView ไว้เปลี่ยนชื่อและรูปโปรไฟล์ทีหลัง)
+    func updateProfile(fullName: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
         clearMessages()
 
         let trimmedFullName = fullName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedUDID = udid.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !trimmedUDID.isEmpty else {
-            let msg = "ไม่พบรหัส UDID ของเครื่อง"
+        guard !trimmedFullName.isEmpty else {
+            let msg = "กรุณากรอกชื่อโปรไฟล์"
             errorMessage = msg
             showErrorNotification(message: msg)
             completion(false)
             return
         }
 
-        guard let url = URL(string: "\(baseURL)/register.php") else { return }
+        guard let savedToken = token, let url = URL(string: "\(baseURL)/update_profile.php") else { // ปรับ URL ตามไฟล์ฝั่ง Server ของคุณ
+            completion(false)
+            return
+        }
 
         isLoading = true
 
@@ -231,8 +223,8 @@ class AuthManager: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(savedToken)", forHTTPHeaderField: "Authorization")
 
-        // สร้าง Multipart Data Body
         var body = Data()
         
         // 1. full_name
@@ -240,12 +232,7 @@ class AuthManager: ObservableObject {
         body.append("Content-Disposition: form-data; name=\"full_name\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(trimmedFullName)\r\n".data(using: .utf8)!)
 
-        // 2. udid
-        body.append("--\(boundary)\r\n".data(using: .utf8)!)
-        body.append("Content-Disposition: form-data; name=\"udid\"\r\n\r\n".data(using: .utf8)!)
-        body.append("\(trimmedUDID)\r\n".data(using: .utf8)!)
-
-        // 3. avatar (ถ้ามีรูปภาพ)
+        // 2. avatar (ถ้ามีเลือกรูปใหม่)
         if let avatarData = avatarImageData {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.jpg\"\r\n".data(using: .utf8)!)
@@ -264,37 +251,20 @@ class AuthManager: ObservableObject {
                 
                 let decoded = try JSONDecoder().decode(APIResponse<UserDataResponse>.self, from: data)
                 if decoded.status, let responseData = decoded.data {
-                    self.token = responseData.token
                     self.currentUser = responseData.toUser()
-                    self.isAuthenticated = true
-                    self.isBanned = false
-                    self.isAccountDeleted = false
-
-                    let msg = decoded.isExistingUser == true ? "ยินดีต้อนรับกลับ! เข้าสู่ระบบเรียบร้อย" : "ลงทะเบียนเรียบร้อยแล้ว"
+                    let msg = "อัปเดตข้อมูลส่วนตัวเรียบร้อยแล้ว"
                     self.successMessage = msg
                     self.showSuccessNotification(message: msg)
                     completion(true)
                 } else {
-                    let bannedCodes = [
-                        "DEVICE_PERMANENTLY_BANNED",
-                        "DEVICE_TEMPORARILY_BANNED",
-                        "ACCOUNT_PERMANENTLY_BANNED",
-                        "ACCOUNT_TEMPORARILY_BANNED"
-                    ]
-                    if let errorCode = decoded.errorCode, bannedCodes.contains(errorCode) {
-                        self.handleBan(banInfo: decoded.banInfo, errorCode: decoded.errorCode, message: decoded.message, showNotification: true)
-                    } else if decoded.errorCode == "ACCOUNT_DELETED" {
-                        self.handleAccountDeleted(message: decoded.message, showNotification: true)
-                    } else {
-                        let msg = decoded.message
-                        self.errorMessage = msg
-                        self.showErrorNotification(message: msg)
-                    }
+                    let msg = decoded.message ?? "เกิดข้อผิดพลาดในการอัปเดตข้อมูล"
+                    self.errorMessage = msg
+                    self.showErrorNotification(message: msg)
                     completion(false)
                 }
             } catch {
                 self.isLoading = false
-                let msg = "การเชื่อมต่อเครือข่ายล้มเหลว หรือเกิดข้อผิดพลาดในการประมวลผลข้อมูล"
+                let msg = "การเชื่อมต่อเครือข่ายล้มเหลว"
                 self.errorMessage = msg
                 self.showErrorNotification(message: msg)
                 completion(false)
@@ -319,7 +289,7 @@ class AuthManager: ObservableObject {
             do {
                 _ = try await URLSession.shared.data(for: request)
             } catch {
-                // Ignore API error on logout and proceed to clear local data
+                // Ignore API error on logout
             }
             self.logoutLocal()
             let msg = "ออกจากระบบเรียบร้อยแล้ว"
@@ -349,7 +319,6 @@ class AuthManager: ObservableObject {
         }
     }
 
-    // 🟢 ฟังก์ชันสำหรับจัดการเมื่อบัญชีถูกลบ
     private func handleAccountDeleted(message: String?, showNotification: Bool = false) {
         logoutLocal()
         self.isAccountDeleted = true
