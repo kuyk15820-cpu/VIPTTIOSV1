@@ -43,8 +43,8 @@ class AuthManager: ObservableObject {
     @Published var errorMessage: String? = nil
     @Published var successMessage: String? = nil
     
-    // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (ป้องกัน UI เด้งก่อน API ตอบกลับ)
-    @Published var isCheckingAuth: Bool = false
+    // 🟢 ตัวแปรจัดการ Loading State ขณะเปิดแอป (บอกให้ UI รู้ว่ากำลังเช็ค Auth อยู่ ห้ามเพิ่งทำอะไร)
+    @Published var isCheckingAuth: Bool = true
     
     // ข้อมูลกรณีถูกแบน
     @Published var isBanned: Bool = false
@@ -96,10 +96,8 @@ class AuthManager: ObservableObject {
 
     // MARK: - 1. Check Auth Status (ตรวจสอบ Token หรือสร้างบัญชีอัตโนมัติผ่าน UDID)
     func checkAuthStatus() async {
-        guard !isCheckingAuth else { return }
-        
         isCheckingAuth = true
-        defer { isCheckingAuth = false }
+        defer { isCheckingAuth = false } // การันตีว่าเมื่อเช็คเสร็จ Flag นี้จะถูกปลด
         
         let currentUDID = UIDevice.current.identifierForVendor?.uuidString ?? ""
 
@@ -183,7 +181,7 @@ class AuthManager: ObservableObject {
             else if decoded.errorCode == "ACCOUNT_DELETED" {
                 self.handleAccountDeleted(message: decoded.message, showNotification: false)
             }
-            // 🟢 3. สำเร็จ! ไม่ว่าจะเป็นผู้ใช้เดิมหรือถูกสร้างให้อัตโนมัติใหม่ บันทึก Token แล้วเข้าแอปได้ทันที
+            // 🟢 3. สำเร็จ! บันทึก Token แล้วอัปเดต State ทันที
             else if decoded.status, let responseData = decoded.data {
                 self.token = responseData.token
                 self.currentUser = responseData.toUser()
@@ -199,7 +197,7 @@ class AuthManager: ObservableObject {
         }
     }
 
-    // MARK: - 2. Update Profile (สำหรับหน้า AccountView ไว้เปลี่ยนชื่อและรูปโปรไฟล์ทีหลัง)
+    // MARK: - 2. Update Profile
     func updateProfile(fullName: String, avatarImageData: Data?, completion: @escaping (Bool) -> Void) {
         clearMessages()
 
@@ -212,7 +210,7 @@ class AuthManager: ObservableObject {
             return
         }
 
-        guard let savedToken = token, let url = URL(string: "\(baseURL)/update_profile.php") else { // ปรับ URL ตามไฟล์ฝั่ง Server ของคุณ
+        guard let savedToken = token, let url = URL(string: "\(baseURL)/update_profile.php") else {
             completion(false)
             return
         }
@@ -227,12 +225,10 @@ class AuthManager: ObservableObject {
 
         var body = Data()
         
-        // 1. full_name
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"full_name\"\r\n\r\n".data(using: .utf8)!)
         body.append("\(trimmedFullName)\r\n".data(using: .utf8)!)
 
-        // 2. avatar (ถ้ามีเลือกรูปใหม่)
         if let avatarData = avatarImageData {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"avatar\"; filename=\"avatar.jpg\"\r\n".data(using: .utf8)!)
