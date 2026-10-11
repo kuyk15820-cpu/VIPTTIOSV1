@@ -13,13 +13,9 @@ struct RootView: View {
             else if authManager.isAccountDeleted {
                 AccountDeletedView()
             }
-            // 🟢 3. แสดงหน้าหลักเมื่อยืนยันตัวตนสำเร็จ
-            else if authManager.isAuthenticated {
-                TargetGameView()
-            }
-            // 🟡 4. แสดงหน้าลงทะเบียน/เข้าสู่ระบบ (กรณีเป็นอุปกรณ์ใหม่ยังไม่มีข้อมูล)
+            // 🟢 3. แสดงหน้าหลักเมื่อยืนยันตัวตนสำเร็จ (รวมถึงกรณีที่ระบบสร้างบัญชีอัตโนมัติด้วย UDID เรียบร้อยแล้ว)
             else {
-                RegisterView()
+                TargetGameView()
             }
         }
         .environmentObject(authManager)
@@ -30,5 +26,6 @@ struct RootView: View {
 struct RootView_Previews: PreviewProvider {
     static var previews: some View {
         RootView()
+            .environmentObject(AuthManager())
     }
 }
