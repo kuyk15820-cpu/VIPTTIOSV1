@@ -19,7 +19,7 @@ struct TargetGameView: View {
             Group {
                 // 🟢 1. หน้าแรกสุด หรือตราบใดที่ยังโหลดครั้งแรกไม่เสร็จ -> แสดง ActivityIndicator
                 if !hasInitialLoaded || (gameManager.isLoading && gameManager.targetApps.isEmpty) {
-                    ActivityIndicator(isAnimating: true, style: .large)
+                    ActivityIndicator(isAnimating: true, style: .medium)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .transition(.opacity)
                 } 
