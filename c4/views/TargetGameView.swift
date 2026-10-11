@@ -67,6 +67,11 @@ struct TargetGameView: View {
         .onAppear {
             if !hasInitialLoaded {
                 Task {
+                    // 🟢 รอให้ AuthManager ตรวจสอบ/สร้างบัญชีอัตโนมัติให้เสร็จก่อน 100%
+                    while AuthManager.shared.isCheckingAuth {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    }
+                    
                     await gameManager.fetchTargetGames(showHUD: false, force: true)
                     withAnimation(.easeInOut(duration: 0.25)) {
                         self.hasInitialLoaded = true
@@ -101,7 +106,11 @@ struct TargetGameView: View {
                         // ถ้าเคยโหลดสำเร็จแล้ว ให้อัปเดตข้อมูลเงียบๆ
                         await self.gameManager.fetchTargetGames(showHUD: false, force: true)
                     } else if !self.gameManager.isLoading {
-                        // ถ้ายังไม่เคยโหลด ให้ยิงโหลดและแสดง ActivityIndicator
+                        // ถ้ายังไม่เคยโหลด ให้รอ Auth เช็คเสร็จก่อนแล้วค่อยยิงโหลด
+                        while AuthManager.shared.isCheckingAuth {
+                            try? await Task.sleep(nanoseconds: 100_000_000)
+                        }
+                        
                         await self.gameManager.fetchTargetGames(showHUD: false, force: true)
                         withAnimation(.easeInOut(duration: 0.25)) {
                             self.hasInitialLoaded = true
