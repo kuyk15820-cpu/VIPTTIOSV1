@@ -104,12 +104,6 @@ jobs:
       - name: sync swift files to xcodeproj
         run: |
           gem install xcodeproj
-          
-          # 🟢 โคลนไลบรารี SwipeBack Gesture เข้ามาใน workspace ก่อนสั่งซิงค์ไฟล์
-          if [ ! -d "SwipeBackGestureKit" ]; then
-            git clone https://github.com/akashkottil/swipeback-gesture-in-custom-navbar-swiftUI.git SwipeBackGestureKit
-          fi
-
           ruby << 'EOF'
           require 'xcodeproj'
           
@@ -336,7 +330,7 @@ jobs:
             puts 'Added Swift Package: PusherSwift'
           end
 
-          # 🟢 Sync ไฟล์ .swift, .m, .mm, .cpp และ .h เข้า Compile Sources และ Project (รวมถึงโฟลเดอร์ SwipeBackGestureKit ที่เพิ่งโคลนมา)
+          # 🟢 Sync ไฟล์ .swift, .m, .mm, .cpp และ .h เข้า Compile Sources และ Project
           source_phase = target.source_build_phase
           existing_files = source_phase.files_references.compact.map(&:real_path).compact.map(&:to_s)
 
