@@ -69,6 +69,7 @@ struct QuickApplyView: View {
     @StateObject private var viewModel: QuickApplyViewModel
     @Environment(\.appLanguage) private var language
     @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss // 🟢 ตัวจัดการสำหรับการย้อนกลับ
 
     // 🟢 ตรวจจับ สถานะการทำงานของแอป (Active, Inactive, Background)
     @Environment(\.scenePhase) private var scenePhase
@@ -167,11 +168,16 @@ struct QuickApplyView: View {
         .navigationTitle(viewModel.selectedApp.name)
         .navigationBarTitleDisplayMode(.large)
         .tint(AppTheme.accent)
-        .task {
-            // 🟢 ดึงข้อมูลล่าสุดเบื้องหลังแบบเงียบๆ (ไม่แสดง HUD)
-            await viewModel.fetchCatalog(showHUD: false)
+        // 🟢 เพิ่ม Custom Back Button (สามารถเปลี่ยนสไตล์เป็น .default, .minimal, หรือ .icon ได้ตามต้องการ)
+        .customBackButton(style: .rounded) {
+            dismiss()
         }
+        // 🟢 เปิดใช้งานท่าทางการปัดนิ้วย้อนกลับแบบเต็มหน้าจอ
         .onAppear {
+            enableSwipeBack()
+            Task {
+                await viewModel.fetchCatalog(showHUD: false)
+            }
             startNetworkMonitoring()
         }
         .onDisappear {
