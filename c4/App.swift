@@ -32,6 +32,15 @@ struct ThreeOneOSFiveApp: App {
         LayoutMetricsHelper.shared.applyLayoutConstraints()
         setupLogCapture()
         log("app: c4 launching — iOS \(AppInfo.osVersion) (\(AppInfo.osBuild)) \(AppInfo.machineName)")
+
+        // 🟢 1. ติดตั้งและเปิดใช้งาน SJFullscreenPopGesture (ปัดย้อนกลับจากทุกพื้นที่)
+        SJFullscreenPopGesture.install()
+        
+        // 🟢 2. ตั้งค่าโหมดเป็นแบบเต็มจอ (.full)
+        SJFullscreenPopGesture.gestureType = .full
+        
+        // 🟢 3. เลือกรูปแบบอนิเมชันตอนปัด (มีเงาและมืดลงเล็กน้อย)
+        SJFullscreenPopGesture.transitionMode = .maskAndShifting
     }
 
     private var language: AppLanguage {
