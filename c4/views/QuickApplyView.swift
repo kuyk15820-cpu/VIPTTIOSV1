@@ -168,13 +168,12 @@ struct QuickApplyView: View {
         .navigationTitle(viewModel.selectedApp.name)
         .navigationBarTitleDisplayMode(.large)
         .tint(AppTheme.accent)
-        // 🟢 เพิ่ม Custom Back Button (สามารถเปลี่ยนสไตล์เป็น .default, .minimal, หรือ .icon ได้ตามต้องการ)
+        // 🟢 เพิ่ม Custom Back Button
         .customBackButton(style: .rounded) {
             dismiss()
         }
-        // 🟢 เปิดใช้งานท่าทางการปัดนิ้วย้อนกลับแบบเต็มหน้าจอ
+        // 🟢 ดึงข้อมูลและมอนิเตอร์เน็ตเมื่อหน้าจอปรากฏ
         .onAppear {
-            enableSwipeBack()
             Task {
                 await viewModel.fetchCatalog(showHUD: false)
             }
